@@ -1,5 +1,7 @@
 # schmeditor
 
+[![CI](https://github.com/nickzoic/schmeditor/actions/workflows/ci.yml/badge.svg)](https://github.com/nickzoic/schmeditor/actions/workflows/ci.yml)
+
 A small, schema-driven editor for JSON documents, in two flavours that work the same way:
 
 * **[`javascript/`](javascript)**: a dependency-free browser component. Give it a `<div>`, a JSON
