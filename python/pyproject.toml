@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "schmeditor"
+version = "0.1.0"
+description = "A schema-driven JSON editor for the terminal: every edit is checked against a JSON Schema."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "CC0-1.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Nick Moore" }]
+keywords = ["json", "json-schema", "editor", "tui", "textual", "terminal"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: User Interfaces",
+    "Topic :: Text Editors",
+    "Typing :: Typed",
+]
+dependencies = ["textual>=8.0"]
+
+[project.optional-dependencies]
+test = ["pytest>=7", "pexpect>=4.8; sys_platform != 'win32'", "pyte>=0.8; sys_platform != 'win32'"]
+
+[project.urls]
+Homepage = "https://github.com/nickzoic/schmeditor"
+Issues = "https://github.com/nickzoic/schmeditor/issues"
+
+[project.scripts]
+schmeditor = "schmeditor.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+schmeditor = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
