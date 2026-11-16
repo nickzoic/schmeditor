@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>schmeditor demo</title>
+<link rel="stylesheet" href="schmeditor.css">
+<style>
+  :root {
+    --bg: #fbfbfa; --fg: #1d2023; --muted: #5f666d; --line: #d9dcdf; --panel: #f1f2f3; --accent: #1f5fbf;
+    color-scheme: light;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg: #16181a; --fg: #e8eaec; --muted: #9aa1a8; --line: #33383c; --panel: #202326; --accent: #7ab0ff; color-scheme: dark; }
+  }
+  :root[data-theme="dark"] { --bg: #16181a; --fg: #e8eaec; --muted: #9aa1a8; --line: #33383c; --panel: #202326; --accent: #7ab0ff; color-scheme: dark; }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+  *, *::before, *::after { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1120px; margin: 0 auto; padding: 28px 20px 48px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .lede { margin: 0 0 22px; color: var(--muted); max-width: 62ch; }
+  .grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 32px; align-items: start; }
+  @media (max-width: 820px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+  .toolbar button, .tabs button {
+    font: inherit; color: inherit; background: transparent; border: 1px solid var(--line);
+    border-radius: 6px; padding: 5px 11px; cursor: pointer;
+  }
+  .toolbar button:hover, .tabs button:hover { background: var(--panel); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  code.m { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .88em; }
+  #status { min-height: 1.6em; margin-bottom: 14px; color: var(--muted); font-size: .92em; }
+  #status.err { color: #d1342f; }
+  .editor-box { border: 1px solid var(--line); border-radius: 8px; padding: 18px; }
+  .side { position: sticky; top: 16px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 8px; }
+  .tabs button[aria-selected="true"] { background: var(--panel); border-color: var(--accent); }
+  pre { margin: 0; padding: 12px; background: var(--panel); border-radius: 8px; overflow: auto; max-height: 70vh;
+        font: 12.5px/1.5 ui-monospace, Menlo, Consolas, monospace; }
+  details.cover { margin: -8px 0 22px; max-width: 78ch; color: var(--muted); font-size: .92em; }
+  details.cover summary { cursor: pointer; color: var(--fg); }
+  details.cover dl { margin: 10px 0 0; display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; }
+  details.cover dt { color: var(--fg); font-weight: 600; }
+  details.cover dd { margin: 0; }
+  details.cover b { font-weight: 600; color: var(--fg); font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .92em; }
+  @media (max-width: 640px) { details.cover dl { grid-template-columns: 1fr; gap: 0; } details.cover dd { margin-bottom: 8px; } }
+  .valid { margin-top: 8px; font-size: .9em; color: var(--muted); }
+  .examples { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 18px; }
+  .examples button { font: inherit; color: inherit; background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 6px 13px; cursor: pointer; }
+  .examples button:hover { background: var(--panel); }
+  .examples button[aria-selected="true"] { background: var(--panel); border-color: var(--accent); }
+  .side { max-height: calc(100vh - 32px); overflow: auto; }
+  .formbox { border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
+  .pnote { margin: 0 0 10px; color: var(--muted); font-size: .9em; }
+  .pmsg { color: #d1342f; font-size: .9em; margin-top: 8px; }
+  #pout { margin-top: 12px; max-height: 30vh; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>schmeditor</h1>
+  <div class="examples" role="tablist" aria-label="Example">
+    <button role="tab" id="ex-contact" aria-selected="true">Every keyword: a contact</button>
+    <button role="tab" id="ex-meta" aria-selected="false">Metaschema: edit a schema</button>
+  </div>
+  <div id="intro-contact">
+  <p class="lede">Edit the contact on the left. The editor only accepts changes that keep the document valid for the schema, so try breaking it: shorten the name, enter a bad postcode, add a sixth tag or duplicate one. The schema uses every supported keyword, and each field’s hint names the keyword it demonstrates.</p>
+  <details class="cover">
+    <summary>Where to find each keyword</summary>
+    <dl>
+      <dt>Composition</dt><dd><b>allOf</b>, <b>anyOf</b> and <b>oneOf</b> are under Composition and references (Entity, Preferred contact, pet). <b>not</b> is on username. <b>if/then/else</b> is on role (root) and Shipping.</dd>
+      <dt>Objects</dt><dd><b>properties</b>, <b>required</b>, <b>additionalProperties</b> (root, labels, limits), <b>patternProperties</b> and <b>propertyNames</b>, <b>minProperties</b>/<b>maxProperties</b> (labels), <b>dependentRequired</b>, <b>dependentSchemas</b> and <b>dependencies</b> (Dependencies).</dd>
+      <dt>Arrays</dt><dd><b>items</b>, <b>uniqueItems</b>, <b>minItems</b>/<b>maxItems</b> (tags), <b>prefixItems</b> (Location), tuple <b>items</b> with <b>additionalItems</b> (Legacy tuple), <b>contains</b>, <b>minContains</b>/<b>maxContains</b> (Milestones).</dd>
+      <dt>Strings and numbers</dt><dd><b>minLength</b>, <b>maxLength</b>, <b>pattern</b> and seven <b>format</b> values (Strings and formats); <b>minimum</b>, <b>maximum</b>, <b>exclusiveMinimum</b>, <b>exclusiveMaximum</b>, <b>multipleOf</b> (Numbers).</dd>
+      <dt>Values and metadata</dt><dd><b>type</b> (including type arrays), <b>enum</b> (including mixed types), <b>const</b> (Entity’s kind), <b>default</b>, <b>title</b>, <b>description</b>.</dd>
+      <dt>References</dt><dd><b>$ref</b> by pointer (address), by anchor (Preferred contact), to the root with <b>#</b> (referrals), and recursively (relatives), with <b>$defs</b>.</dd>
+    </dl>
+  </details>
+  </div>
+  <div id="intro-meta" hidden>
+    <p class="lede">The same editor, pointed at a metaschema: a schema that describes the schemas SchemaEditor understands. Edit the Task schema on the left, or load the Contact schema into it. The Form tab turns whatever schema you build into a working editor, live. Pick a kind for each schema (string, object, array and so on), then add keywords from its menu. Keywords the editor doesn’t support are refused.</p>
+  </div>
+  <div class="grid">
+    <section aria-label="Editor">
+      <div class="toolbar" id="toolbar"></div>
+      <div id="status" role="status" aria-live="polite">Ready.</div>
+      <div class="editor-box"><div id="editor"></div></div>
+    </section>
+    <aside class="side" aria-label="Output">
+      <div class="tabs" role="tablist">
+        <button role="tab" id="t-form" data-view="form" aria-selected="false" hidden>Form</button>
+        <button role="tab" id="t-doc" data-view="doc" aria-selected="true">Document</button>
+        <button role="tab" id="t-schema" data-view="schema" aria-selected="false">Schema</button>
+      </div>
+      <pre id="out"></pre>
+      <div id="preview" hidden>
+        <p class="pnote">A form built from the schema you are editing. It rebuilds as you type and keeps its values while they remain valid.</p>
+        <div class="formbox"><div id="preview-editor"></div></div>
+        <div class="pmsg" id="pmsg" role="status"></div>
+        <pre id="pout"></pre>
+      </div>
+      <div class="valid" id="valid"></div>
+    </aside>
+  </div>
+</main>
+
+<script src="schmeditor.js"></script>
+<script src="demo.js"></script>
+</body>
+</html>

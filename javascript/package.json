@@ -1,0 +1,20 @@
+{
+  "name": "schmeditor",
+  "version": "0.1.0",
+  "description": "A small, dependency-free, schema-driven JSON editor for the browser.",
+  "main": "schmeditor.js",
+  "files": ["schmeditor.js", "schmeditor.css"],
+  "scripts": {
+    "test": "node --test"
+  },
+  "keywords": ["json", "json-schema", "editor", "form"],
+  "license": "CC0-1.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nickzoic/schmeditor.git",
+    "directory": "javascript"
+  },
+  "devDependencies": {
+    "jsdom": "^31.0.0"
+  }
+}

@@ -1,0 +1,82 @@
+{
+  "name": "Ada",
+  "username": "ada",
+  "tags": [
+    "math",
+    "engines"
+  ],
+  "role": "customer",
+  "nickname": null,
+  "address": {
+    "postcode": "3000"
+  },
+  "strings": {
+    "code": "ABC123",
+    "email": "ada@example.com"
+  },
+  "numbers": {
+    "quantity": 3,
+    "rating": 4.5
+  },
+  "arrays": {
+    "location": [
+      -37.8136,
+      144.9631
+    ],
+    "legacy": [
+      "x",
+      2,
+      true
+    ],
+    "milestones": [
+      50,
+      100
+    ]
+  },
+  "objects": {
+    "labels": {
+      "team": "core"
+    },
+    "limits": {
+      "max_items": 10,
+      "flag_beta": true
+    },
+    "scratch": {
+      "note": "anything goes",
+      "count": 3
+    }
+  },
+  "billing": {
+    "card": "4242",
+    "cardExpiry": "01/30"
+  },
+  "shipping": {
+    "method": "pickup",
+    "store": "Central"
+  },
+  "composition": {
+    "entity": {
+      "kind": "entity",
+      "id": "3f2b8c1e-9d4a-4e6b-8a1f-2c7d5e9b0a13",
+      "label": "Analytical Engine",
+      "created": "1843-10-01T00:00:00Z"
+    },
+    "reach": "ada@example.com",
+    "pet": {
+      "good": true
+    },
+    "externalId": 42,
+    "priority": "urgent",
+    "referrals": [],
+    "relatives": [
+      {
+        "name": "Charles",
+        "relatives": [
+          {
+            "name": "Annabella"
+          }
+        ]
+      }
+    ]
+  }
+}

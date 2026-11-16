@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+
+# JavaScript
+node_modules/
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/

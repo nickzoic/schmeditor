@@ -1,0 +1,572 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Contact",
+  "description": "One schema that exercises every keyword the editor supports. Field hints name the keyword on show.",
+  "type": "object",
+  "required": [
+    "name",
+    "tags"
+  ],
+  "additionalProperties": {
+    "type": [
+      "string",
+      "number",
+      "boolean"
+    ]
+  },
+  "properties": {
+    "name": {
+      "type": "string",
+      "minLength": 2,
+      "default": "Unnamed",
+      "description": "required, minLength: at least two characters."
+    },
+    "username": {
+      "type": "string",
+      "minLength": 3,
+      "default": "ada",
+      "not": {
+        "enum": [
+          "admin",
+          "root"
+        ]
+      },
+      "description": "not: “admin” and “root” are forbidden."
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true,
+      "minItems": 1,
+      "maxItems": 5,
+      "description": "items, uniqueItems, minItems, maxItems: 1 to 5 unique tags."
+    },
+    "role": {
+      "enum": [
+        "customer",
+        "partner",
+        "staff"
+      ],
+      "description": "enum, plus if/then at the root: “staff” adds a required department."
+    },
+    "nickname": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "A type array: string or null."
+    },
+    "address": {
+      "$ref": "#/$defs/address",
+      "description": "$ref by JSON pointer."
+    },
+    "strings": {
+      "title": "Strings and formats",
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 8,
+          "pattern": "^[A-Z0-9]+$",
+          "default": "ABC",
+          "description": "minLength, maxLength, pattern: 3 to 8 capitals or digits."
+        },
+        "bio": {
+          "type": "string",
+          "maxLength": 300,
+          "default": "Hello.",
+          "description": "maxLength above 200 gives a text area."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "title": "email (format)"
+        },
+        "website": {
+          "type": "string",
+          "format": "uri",
+          "title": "website (uri)"
+        },
+        "birthday": {
+          "type": "string",
+          "format": "date",
+          "title": "birthday (date)"
+        },
+        "lastSeen": {
+          "type": "string",
+          "format": "date-time",
+          "title": "lastSeen (date-time)"
+        },
+        "alarm": {
+          "type": "string",
+          "format": "time",
+          "title": "alarm (time)"
+        },
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "title": "id (uuid)"
+        },
+        "ip": {
+          "type": "string",
+          "format": "ipv4",
+          "title": "ip (ipv4)"
+        }
+      }
+    },
+    "numbers": {
+      "title": "Numbers",
+      "type": "object",
+      "properties": {
+        "quantity": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 99,
+          "default": 1,
+          "description": "integer, minimum, maximum: 1 to 99."
+        },
+        "rating": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 5,
+          "multipleOf": 0.5,
+          "description": "multipleOf: halves from 0 to 5."
+        },
+        "ratio": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "exclusiveMaximum": 1,
+          "multipleOf": 0.05,
+          "description": "exclusiveMinimum and exclusiveMaximum: strictly between 0 and 1."
+        },
+        "even": {
+          "type": "integer",
+          "multipleOf": 2,
+          "default": 2,
+          "description": "multipleOf 2."
+        }
+      }
+    },
+    "arrays": {
+      "title": "Arrays",
+      "type": "object",
+      "properties": {
+        "location": {
+          "title": "Location",
+          "type": "array",
+          "default": [
+            -37.8136,
+            144.9631
+          ],
+          "prefixItems": [
+            {
+              "type": "number",
+              "minimum": -90,
+              "maximum": 90
+            },
+            {
+              "type": "number",
+              "minimum": -180,
+              "maximum": 180
+            }
+          ],
+          "items": false,
+          "minItems": 2,
+          "description": "prefixItems with items: false: a fixed [latitude, longitude] pair."
+        },
+        "legacy": {
+          "title": "Legacy tuple",
+          "type": "array",
+          "default": [
+            "a",
+            1
+          ],
+          "minItems": 2,
+          "items": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "additionalItems": {
+            "type": "boolean"
+          },
+          "description": "Tuple items plus additionalItems: string, integer, then any number of booleans."
+        },
+        "milestones": {
+          "title": "Milestones",
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "default": [
+            100
+          ],
+          "contains": {
+            "minimum": 100
+          },
+          "minContains": 1,
+          "maxContains": 2,
+          "description": "contains, minContains, maxContains: one or two values must be 100 or more."
+        }
+      }
+    },
+    "objects": {
+      "title": "Objects",
+      "type": "object",
+      "properties": {
+        "labels": {
+          "type": "object",
+          "default": {
+            "team": "core"
+          },
+          "additionalProperties": {
+            "type": "string"
+          },
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "maxLength": 20
+          },
+          "minProperties": 1,
+          "maxProperties": 4,
+          "description": "additionalProperties, propertyNames, minProperties, maxProperties: 1 to 4 lowercase keys with string values."
+        },
+        "limits": {
+          "type": "object",
+          "default": {
+            "max_items": 10,
+            "flag_beta": true
+          },
+          "patternProperties": {
+            "^max_": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "^flag_": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false,
+          "description": "patternProperties with additionalProperties: false. Keys must start with max_ or flag_."
+        },
+        "scratch": {
+          "title": "Free-form",
+          "type": "object",
+          "default": {
+            "note": "anything goes"
+          },
+          "description": "No constraints: values can be any JSON type."
+        }
+      }
+    },
+    "billing": {
+      "title": "Dependencies",
+      "type": "object",
+      "properties": {
+        "card": {
+          "type": "string",
+          "minLength": 4,
+          "default": "4242",
+          "description": "dependentRequired: a card needs an expiry."
+        },
+        "cardExpiry": {
+          "type": "string",
+          "pattern": "^[0-9]{2}/[0-9]{2}$",
+          "default": "01/30",
+          "description": "MM/YY"
+        },
+        "gift": {
+          "type": "boolean",
+          "description": "dependentSchemas: a gift needs a message."
+        },
+        "giftMessage": {
+          "type": "string",
+          "minLength": 1,
+          "default": "Happy birthday!"
+        },
+        "phone": {
+          "type": "string",
+          "default": "0400 000 000",
+          "description": "dependencies (legacy array form): a phone needs a type."
+        },
+        "phoneType": {
+          "enum": [
+            "mobile",
+            "landline"
+          ]
+        }
+      },
+      "dependentRequired": {
+        "card": [
+          "cardExpiry"
+        ]
+      },
+      "dependentSchemas": {
+        "gift": {
+          "required": [
+            "giftMessage"
+          ]
+        }
+      },
+      "dependencies": {
+        "phone": [
+          "phoneType"
+        ]
+      }
+    },
+    "shipping": {
+      "title": "Shipping",
+      "type": "object",
+      "required": [
+        "method"
+      ],
+      "properties": {
+        "method": {
+          "enum": [
+            "pickup",
+            "delivery"
+          ],
+          "description": "if/then/else: delivery requires a street, pickup requires a store."
+        },
+        "street": {
+          "type": "string",
+          "default": "Main St"
+        },
+        "store": {
+          "type": "string",
+          "default": "Central"
+        }
+      },
+      "if": {
+        "properties": {
+          "method": {
+            "const": "delivery"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "street"
+        ]
+      },
+      "else": {
+        "required": [
+          "store"
+        ]
+      }
+    },
+    "composition": {
+      "title": "Composition and references",
+      "type": "object",
+      "properties": {
+        "entity": {
+          "title": "Entity",
+          "description": "allOf: three schemas merged, one through $ref. “kind” is a const.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/named"
+            },
+            {
+              "$ref": "#/$defs/timestamped"
+            },
+            {
+              "type": "object",
+              "required": [
+                "kind"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "entity"
+                }
+              }
+            }
+          ]
+        },
+        "reach": {
+          "title": "Preferred contact",
+          "description": "anyOf: an email, a phone number, or a mailing address (a $ref by anchor).",
+          "anyOf": [
+            {
+              "title": "Email address",
+              "type": "string",
+              "format": "email"
+            },
+            {
+              "title": "Phone number",
+              "type": "string",
+              "pattern": "^\\+?[0-9 ]{6,15}$",
+              "default": "+61 400 000 000"
+            },
+            {
+              "title": "Mailing address",
+              "$ref": "#postal"
+            }
+          ]
+        },
+        "pet": {
+          "description": "oneOf: exactly one alternative must match.",
+          "oneOf": [
+            {
+              "title": "Dog",
+              "type": "object",
+              "required": [
+                "good"
+              ],
+              "properties": {
+                "good": {
+                  "type": "boolean"
+                }
+              }
+            },
+            {
+              "title": "Fish",
+              "type": "object",
+              "required": [
+                "fins"
+              ],
+              "properties": {
+                "fins": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            }
+          ]
+        },
+        "externalId": {
+          "type": [
+            "string",
+            "integer"
+          ],
+          "description": "A type array: string or integer."
+        },
+        "priority": {
+          "enum": [
+            1,
+            2,
+            3,
+            "urgent",
+            null
+          ],
+          "description": "enum with mixed types."
+        },
+        "referrals": {
+          "type": "array",
+          "items": {
+            "$ref": "#"
+          },
+          "maxItems": 3,
+          "description": "$ref “#”: each referral is a whole Contact."
+        },
+        "relatives": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/person"
+          },
+          "description": "A recursive $ref: people with relatives."
+        }
+      }
+    }
+  },
+  "if": {
+    "required": [
+      "role"
+    ],
+    "properties": {
+      "role": {
+        "const": "staff"
+      }
+    }
+  },
+  "then": {
+    "required": [
+      "department"
+    ],
+    "properties": {
+      "department": {
+        "type": "string",
+        "default": "Operations"
+      }
+    }
+  },
+  "$defs": {
+    "address": {
+      "$anchor": "postal",
+      "title": "Address",
+      "type": "object",
+      "required": [
+        "postcode"
+      ],
+      "properties": {
+        "street": {
+          "type": "string"
+        },
+        "postcode": {
+          "type": "string",
+          "pattern": "^[0-9]{4}$",
+          "default": "3000",
+          "description": "Four digits."
+        }
+      }
+    },
+    "named": {
+      "type": "object",
+      "required": [
+        "id",
+        "label"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid",
+          "default": "3f2b8c1e-9d4a-4e6b-8a1f-2c7d5e9b0a13"
+        },
+        "label": {
+          "type": "string",
+          "default": "Untitled"
+        }
+      }
+    },
+    "timestamped": {
+      "type": "object",
+      "required": [
+        "created"
+      ],
+      "properties": {
+        "created": {
+          "type": "string",
+          "format": "date-time",
+          "default": "2024-01-01T00:00:00Z"
+        },
+        "updated": {
+          "type": "string",
+          "format": "date"
+        }
+      }
+    },
+    "person": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "default": "Someone"
+        },
+        "relatives": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/person"
+          }
+        }
+      }
+    }
+  }
+}
