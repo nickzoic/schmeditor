@@ -212,7 +212,16 @@ The interfaces differ where the medium does: the terminal version adds undo/redo
 browser version shows every optional property as an "Add" row (collapsing them into one menu when
 there are many) and a live form in the metaschema demo.
 
-Tested with Node 22 and jsdom 31, and with Python 3.12 and Textual 8.2.
+## Continuous integration
+
+[GitHub Actions](.github/workflows/ci.yml) runs on every push to `main` and every pull request:
+
+* the JavaScript tests on Node 22, 24 and 26;
+* the Python tests on Python 3.9 to 3.14 on Linux, and on 3.12 on macOS and Windows (the
+  pseudo-terminal tests are skipped on Windows);
+* a packaging check: build the sdist and wheel, run `twine check`, install the wheel and run the
+  `schmeditor` command on the examples;
+* the check that the JavaScript and Python validators agree.
 
 ## License
 
