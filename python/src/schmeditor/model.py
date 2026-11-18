@@ -7,6 +7,7 @@ from typing import Any, Callable, Optional
 
 from .engine import (_MISSING, ChangeRejected, EditCancelled, SchemaEngine, _fmt_error, _index, clone,
                      deep_equal, get_at, parse_path, remove_at, set_at, to_ptr)
+from .patch import PatchError, apply_patch, diff_patch
 
 __all__ = ["SchemaEditor", "Result", "edit"]
 
@@ -29,9 +30,18 @@ class Result:
 class SchemaEditor(SchemaEngine):
     """A document plus a schema, with edits that can never make the document less valid.
 
-    `on_change(document, info)` is called after user edits in the terminal UI, with
-    `info = {"path": "/json/pointer", "source": "user"}`. Pass `notify_on_programmatic=True`
-    to also be told about set/remove/insert/push/set_document (`source` is then "api").
+    `on_change(document, info)` is called after user edits in the terminal UI. `document` is a
+    copy of the whole document and `info` is a dict:
+
+    * `"source"`: `"user"` for edits in the UI, or `"api"` for set/remove/insert/push/set_document
+      (only reported with `notify_on_programmatic=True`);
+    * `"patch"`: a JSON Patch (RFC 6902), a list of operations. Applied to the document as it was
+      before the change (see `apply_patch`), it gives `document`. It uses replace, add and remove
+      (and move, for reordering an array item or renaming a property), followed by anything the
+      editor changed along with the edit, such as a property that became required and was filled in;
+    * `"path"`: JSON Pointer to the main thing that changed (`""` for the whole document);
+    * `"value"`: a copy of the new value at `path`. Absent if it was removed. After a move, and
+      after insert/push, `path` is the array and `value` its new contents.
     """
 
     def __init__(self, schema: Any, document: Any = _MISSING, *,
@@ -69,9 +79,10 @@ class SchemaEditor(SchemaEngine):
     def set_document(self, document: Any) -> "SchemaEditor":
         """Replace the whole document (it need not be valid; its errors are shown)."""
         self._snapshot()
+        before = self._doc
         self._doc = clone(document)
         self._set_errors(self.validate_value(self._doc))
-        self._fire("", "api")
+        self._notify([], "api", before, primary=[{"op": "replace", "path": "", "value": clone(document)}])
         return self
 
     def get(self, path: Any = "") -> Any:
@@ -95,12 +106,57 @@ class SchemaEditor(SchemaEngine):
     def mark_saved(self) -> None:
         self._saved = clone(self._doc)
 
-    def _fire(self, path: str, source: str) -> None:
-        if self._cb and (source == "user" or self.notify_on_programmatic):
+    def _primary(self, before: Any, after: Any, path: list, removed: bool, primary: Optional[list]) -> list:
+        """The main operations of an edit, as JSON Patch. `primary` gives them outright (for moves,
+        renames and inserts); otherwise the edit set, added or removed whatever is at `path`."""
+        if primary is not None:
+            return primary
+        ptr = to_ptr(path)
+        if removed:
+            return [{"op": "remove", "path": ptr}]
+        was, now = get_at(before, path), get_at(after, path)
+        if was is _MISSING:
+            return [] if now is _MISSING else [{"op": "add", "path": ptr, "value": clone(now)}]
+        return [] if deep_equal(was, now) else [{"op": "replace", "path": ptr, "value": clone(now)}]
+
+    def _make_patch(self, before: Any, after: Any, primary: list) -> list:
+        """A JSON Patch that turns `before` into `after`: the edit's main operations, then anything
+        else the editor changed along with it. Always checked, so it is never wrong: if the pieces
+        didn't add up, the patch replaces the whole document."""
+        def works(ops: list) -> bool:
             try:
-                self._cb(clone(self._doc), {"path": path, "source": source})
-            except Exception:                       # a faulty callback must not break editing
-                log.exception("on_change callback failed")
+                return deep_equal(apply_patch(before, ops), after)
+            except PatchError:
+                return False
+
+        try:
+            ops = [clone(o) for o in primary] + diff_patch(apply_patch(before, primary), after)
+            if works(ops):
+                return ops
+        except PatchError:
+            pass
+        plain = diff_patch(before, after)
+        return plain if works(plain) else [{"op": "replace", "path": "", "value": clone(after)}]
+
+    def _notify(self, path: Any, source: str, before: Any, *, removed: bool = False,
+                primary: Optional[list] = None) -> None:
+        """Tell the callback about a change (the document has already been updated)."""
+        if not self._cb or (source != "user" and not self.notify_on_programmatic):
+            return
+        path = parse_path(path)
+        after = self._doc
+        info: dict[str, Any] = {
+            "source": source,
+            "patch": self._make_patch(before, after, self._primary(before, after, path, removed, primary)),
+            "path": to_ptr(path),
+        }
+        value = get_at(after, path)
+        if not removed and value is not _MISSING:
+            info["value"] = clone(value)
+        try:
+            self._cb(clone(after), info)
+        except Exception:                           # a faulty callback must not break editing
+            log.exception("on_change callback failed")
 
     # ---- checked mutation --------------------------------------------------------
 
@@ -171,42 +227,49 @@ class SchemaEditor(SchemaEngine):
         self._coalesce = None
 
     def commit(self, mutator: Callable[[Any], Any], path: Any = "", *, repair: bool = True,
-               source: str = "user", coalesce: Any = None) -> Result:
+               source: str = "user", coalesce: Any = None, removed: bool = False,
+               primary: Optional[list] = None) -> Result:
+        """Apply an edit if it adds no new errors. `path` is what the change callback is told
+        about; `removed` says that whatever was there is gone; `primary` gives the edit's main
+        JSON Patch operations when they aren't a simple set, add or remove at `path`."""
         ok, nxt, errors = self.try_mutate(mutator, repair)
         if not ok:
             return Result(False, errors)
-        changed = not deep_equal(self._doc, nxt)
+        before = self._doc
+        changed = not deep_equal(before, nxt)
         if changed:
             self._snapshot(coalesce)
             self._doc = nxt
             self._set_errors(self._pending_errs)
-            self._fire(to_ptr(parse_path(path)), source)
+            self._notify(path, source, before, removed=removed, primary=primary)
         return Result(True, [], changed)
 
     def undo(self) -> bool:
         if not self._undo:
             return False
         self._redo.append(clone(self._doc))
+        before = self._doc
         self._doc = self._undo.pop()
         self._set_errors(self.validate_value(self._doc))
         self._coalesce = None
-        self._fire("", "user")
+        self._notify([], "user", before, primary=[])
         return True
 
     def redo(self) -> bool:
         if not self._redo:
             return False
         self._undo.append(clone(self._doc))
+        before = self._doc
         self._doc = self._redo.pop()
         self._set_errors(self.validate_value(self._doc))
         self._coalesce = None
-        self._fire("", "user")
+        self._notify([], "user", before, primary=[])
         return True
 
     # ---- programmatic edits (raise ChangeRejected) --------------------------------
 
-    def _api(self, mutator: Callable[[Any], Any], path: Any) -> "SchemaEditor":
-        r = self.commit(mutator, path, repair=False, source="api")
+    def _api(self, mutator: Callable[[Any], Any], path: Any, **how: Any) -> "SchemaEditor":
+        r = self.commit(mutator, path, repair=False, source="api", **how)
         if not r.ok:
             raise ChangeRejected(r.errors)
         return self
@@ -217,7 +280,7 @@ class SchemaEditor(SchemaEngine):
 
     def remove(self, path: Any) -> "SchemaEditor":
         p = parse_path(path)
-        return self._api(lambda d: remove_at(d, p), p)
+        return self._api(lambda d: remove_at(d, p), p, removed=True)
 
     def insert(self, path: Any, index: int, value: Any) -> "SchemaEditor":
         p = parse_path(path)
@@ -230,7 +293,7 @@ class SchemaEditor(SchemaEngine):
                 raise ValueError(f"Invalid array index {index}")
             arr.insert(index, clone(value))
 
-        return self._api(go, p)
+        return self._api(go, p, primary=[{"op": "add", "path": to_ptr(p + [index]), "value": clone(value)}])
 
     def push(self, path: Any, value: Any) -> "SchemaEditor":
         p = parse_path(path)
@@ -241,7 +304,9 @@ class SchemaEditor(SchemaEngine):
                 raise ValueError("Not an array: " + to_ptr(p))
             arr.append(clone(value))
 
-        return self._api(go, p)
+        current = get_at(self._doc, p)
+        end = len(current) if isinstance(current, list) else 0
+        return self._api(go, p, primary=[{"op": "add", "path": to_ptr(p + [end]), "value": clone(value)}])
 
     # ---- interactive operations (return a Result, never raise) ---------------------
 
@@ -331,7 +396,7 @@ class SchemaEditor(SchemaEngine):
 
     def ui_remove(self, path) -> Result:
         path = list(path)
-        return self.commit(lambda d: remove_at(d, path), path, repair=False)
+        return self.commit(lambda d: remove_at(d, path), path, repair=False, removed=True)
 
     def ui_move(self, path, delta: int) -> Result:
         path = list(path)
@@ -344,7 +409,10 @@ class SchemaEditor(SchemaEngine):
                 raise ValueError("Can't move the item there")
             arr.insert(i + delta, arr.pop(i))
 
-        return self.commit(go, path)
+        # Moving changes two items, so the change is reported on the array itself.
+        index = _index(path[-1]) if path else None
+        primary = None if index is None else [{"op": "move", "from": to_ptr(path), "path": to_ptr(parent + [index + delta])}]
+        return self.commit(go, parent, primary=primary)
 
     def ui_rename(self, path, new_key: str) -> Result:
         path = list(path)
@@ -360,7 +428,8 @@ class SchemaEditor(SchemaEngine):
             o.clear()
             o.update(items)
 
-        return self.commit(go, parent + [new_key])
+        move = [{"op": "move", "from": to_ptr(parent + [old]), "path": to_ptr(parent + [new_key])}]
+        return self.commit(go, parent + [new_key], primary=move)
 
     # ---- the terminal UI -----------------------------------------------------------
 

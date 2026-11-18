@@ -30,6 +30,11 @@ As a library::
     ed.get_document(); ed.set_document(doc)
     doc = ed.run()                            # same as edit(), on this object
 
+The change callback `on_change(doc, info)` gets a copy of the whole document and an `info` dict
+with `source`, `patch` (a JSON Patch, RFC 6902: applied to the document as it was before the
+change, it gives `doc`), `path` and `value`. `apply_patch(doc, patch)` applies a JSON Patch to a
+copy of a document.
+
 Supported schema keywords: type (including type lists), enum, const, default, title,
 description, properties, patternProperties, additionalProperties, required, minProperties,
 maxProperties, propertyNames, dependentRequired, dependentSchemas, dependencies, items
@@ -40,7 +45,8 @@ and local $ref ("#", "#/pointer", "#anchor"). Remote $refs are not supported.
 """
 from .engine import ChangeRejected, EditCancelled, SchemaEngine
 from .model import Result, SchemaEditor, edit
+from .patch import PatchError, apply_patch
 
 __version__ = "0.1.0"
 __all__ = ["edit", "SchemaEditor", "SchemaEngine", "Result", "ChangeRejected", "EditCancelled",
-           "__version__"]
+           "apply_patch", "PatchError", "__version__"]

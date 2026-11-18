@@ -28,7 +28,8 @@ A document that starts out valid therefore stays valid, however you edit it.
   `minProperties`/`maxProperties`, `uniqueItems`, tuples (`prefixItems`, `items` arrays) and
   `additionalProperties`/`patternProperties`.
 * **Works on documents that start invalid.** Their errors are shown, and edits may only reduce them.
-* Exposes a **programmatic API** to read and change the document, and a **change callback**.
+* Exposes a **programmatic API** to read and change the document, and a **change callback** that
+  receives each change as a [JSON Patch](https://datatracker.ietf.org/doc/html/rfc6902) (RFC 6902).
 
 ## Repository layout
 
@@ -37,7 +38,7 @@ A document that starts out valid therefore stays valid, however you edit it.
 | [`javascript/`](javascript) | `schmeditor.js` (component), `schmeditor.css` (stylesheet), `index.html` + `demo.js` (demonstration page), tests |
 | [`python/`](python) | the `schmeditor` package (`pyproject.toml`, `src/`, `tests/`) |
 | [`examples/`](examples) | shared example schemas and documents, used by both demos and both test suites |
-| [`tools/`](tools) | `compare_validators.py`: checks that the two implementations report identical errors |
+| [`tools/`](tools) | `compare_validators.py` and `compare_patches.py`: check that the two implementations report identical validation errors and JSON Patches |
 
 ## JavaScript
 
@@ -240,10 +241,14 @@ In the JavaScript demonstration it also drives a live form built from the schema
 
 ## The two implementations
 
-They share the same validation semantics. [`tools/compare_validators.py`](tools/compare_validators.py)
-validates about 1,800 documents (random mutations of the examples, plus edge cases for individual
-keywords) with both and compares every error they report; at the time of writing the two agree
-exactly. It needs `npm install` in `javascript/` first, then `python tools/compare_validators.py`.
+They share the same validation semantics and the same JSON Patch output.
+[`tools/compare_validators.py`](tools/compare_validators.py) validates about 1,800 documents (random
+mutations of the examples, plus edge cases for individual keywords) with both and compares every error
+they report. [`tools/compare_patches.py`](tools/compare_patches.py) works out patches between about
+3,500 pairs of documents with both, and checks that the patches are identical and that each
+implementation can apply the other's. At the time of writing they agree exactly. Both need
+`npm install` in `javascript/` first, then `python tools/compare_validators.py` and
+`python tools/compare_patches.py`.
 The interfaces differ where the medium does: the terminal version adds undo/redo, a command line and a filterable "add" list; the
 browser version shows every optional property as an "Add" row (collapsing them into one menu when
 there are many) and a live form in the metaschema demo.
@@ -257,7 +262,7 @@ there are many) and a live form in the metaschema demo.
   pseudo-terminal tests are skipped on Windows);
 * a packaging check: build the sdist and wheel, run `twine check`, install the wheel and run the
   `schmeditor` command on the examples;
-* the check that the JavaScript and Python validators agree.
+* the checks that the JavaScript and Python validators and JSON Patch implementations agree.
 
 ## License
 

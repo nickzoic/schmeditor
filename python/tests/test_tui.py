@@ -4,7 +4,8 @@ import copy
 
 from textual.widgets import Select, Tree
 
-from schmeditor import SchemaEditor
+from schmeditor import SchemaEditor, apply_patch
+from schmeditor.engine import deep_equal
 from schmeditor.tui import EditorApp
 
 
@@ -286,3 +287,41 @@ async def test_save_handler_saves_and_keeps_editing(schema, doc, _meta):
         await pilot.press("ctrl+q")
         await settle(pilot)
     assert app.return_value[0] == "ok"
+
+
+@ui_test
+async def test_keystrokes_in_the_ui_reach_the_callback_as_json_patches(schema, doc, _meta):
+    events = []
+    ed = SchemaEditor(schema, doc, on_change=lambda d, info: events.append((d, info)))
+    app = EditorApp(ed)
+    async with app.run_test(size=(130, 45)) as pilot:
+        await settle(pilot)
+        await pilot.press("down", "enter", "A", "l", "i")           # name: "Ada" -> "A" is refused -> "Al" -> "Ali"
+        await settle(pilot)
+        assert [i["patch"] for _, i in events] == [
+            [{"op": "replace", "path": "/name", "value": "Al"}],
+            [{"op": "replace", "path": "/name", "value": "Ali"}],
+        ]
+        await pilot.press("escape")
+        app._select_path(("tags",))
+        await settle(pilot)
+        await pilot.press("a", "K")                                   # add an item, then move it up
+        await settle(pilot)
+        assert [i["patch"] for _, i in events[2:]] == [
+            [{"op": "add", "path": "/tags/2", "value": "x"}],
+            [{"op": "move", "from": "/tags/2", "path": "/tags/1"}],
+        ]
+        app._select_path(("role",))
+        await settle(pilot)
+        app.query_one("#d-enum", Select).value = 2                    # "staff" makes department required
+        await settle(pilot)
+        assert events[-1][1]["patch"] == [{"op": "replace", "path": "/role", "value": "staff"},
+                                          {"op": "add", "path": "/department", "value": "Operations"}]
+        await pilot.press("ctrl+z")                                   # undo is a diff
+        await settle(pilot)
+        assert events[-1][1]["patch"] == [{"op": "replace", "path": "/role", "value": "customer"},
+                                          {"op": "remove", "path": "/department"}]
+    previous = copy.deepcopy(doc)               # each patch turns the previous document into the next
+    for after, info in events:
+        assert deep_equal(apply_patch(previous, info["patch"]), after)
+        previous = after
