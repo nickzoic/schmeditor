@@ -194,6 +194,37 @@ doc = ed.run()                          # the same as edit(), on this object
 validation engine and document model (`schmeditor.engine`, `schmeditor.model`) are plain Python with no
 dependencies; Textual is only imported when the UI is opened.
 
+**The change callback** is called as `on_change(doc, info)`, exactly as in the JavaScript component:
+`doc` is a copy of the whole document and `info` is a dict with
+
+| | |
+| --- | --- |
+| `"source"` | `"user"` for edits made in the terminal UI, or `"api"` for `set`/`remove`/… when `notify_on_programmatic=True` |
+| `"patch"` | a [JSON Patch](https://datatracker.ietf.org/doc/html/rfc6902) (RFC 6902): applied to the document as it was before the change, it gives `doc` |
+| `"path"` | JSON Pointer to the main thing that changed (`""` for the whole document) |
+| `"value"` | a copy of the new value at `path`. The key is absent if it was removed, since `None` is a real JSON value |
+
+```python
+import copy
+from schmeditor import SchemaEditor, apply_patch
+
+mirror = copy.deepcopy(document)
+
+def changed(doc, info):
+    global mirror
+    mirror = apply_patch(mirror, info["patch"])          # keep another copy in step
+
+SchemaEditor(schema, document, on_change=changed).run()
+```
+
+The patch describes what the user did (`replace`, `add`, `remove`, and `move` for reordering an array
+item or renaming a property), followed by anything the editor changed along with the edit, such as a
+newly required property it filled in. It is checked before it is sent, so it is never wrong: if it
+could not reproduce the document, it is a single `replace` of the whole document. Undo and redo are
+reported as a patch too. Moving an array item reports the array as `path`, and `insert`/`push` do the
+same. `apply_patch(doc, patch)` applies a JSON Patch to a copy of a document, implements all six RFC
+operations, raises `PatchError` naming the failing operation and does not look at any schema.
+
 ### Tests
 
 ```
