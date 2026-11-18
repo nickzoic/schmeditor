@@ -215,7 +215,14 @@
         switch (o.op) {
           case 'add': root = add(root, path, clone(o.value)); break;
           case 'remove': root = remove(root, path); break;
-          case 'replace': locate(root, path); root = path.length ? add(remove(root, path), path, clone(o.value)) : clone(o.value); break;
+          case 'replace': {                      // in place, so an object member keeps its position
+            locate(root, path);
+            if (!path.length) { root = clone(o.value); break; }
+            const parent = locate(root, path.slice(0, -1)), k = path[path.length - 1];
+            if (Array.isArray(parent)) parent[arrayIndex(k, parent.length - 1)] = clone(o.value);
+            else parent[k] = clone(o.value);
+            break;
+          }
           case 'move': {
             const f = from();
             if (path.length > f.length && f.every((k, n) => k === path[n])) throw new Error('cannot move into itself');

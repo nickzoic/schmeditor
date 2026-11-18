@@ -268,6 +268,13 @@ test('applyPatch implements the examples in RFC 6902 appendix A', () => {
   same(1, [{ op: 'replace', path: '', value: 2 }], 2);
 });
 
+test('applyPatch replaces in place, so members and items keep their positions', () => {
+  const out = SchemaEditor.applyPatch({ a: 1, b: 2, c: 3, d: [1, 2, 3] },
+    [{ op: 'replace', path: '/a', value: 9 }, { op: 'replace', path: '/d/1', value: 7 }]);
+  assert.deepEqual(Object.keys(out), ['a', 'b', 'c', 'd']);
+  assert.deepEqual(out.d, [1, 7, 3]);
+});
+
 test('applyPatch leaves its input alone and rejects bad operations', () => {
   const doc = { a: [1, 2, 3] };
   const out = SchemaEditor.applyPatch(doc, [{ op: 'remove', path: '/a/0' }]);
