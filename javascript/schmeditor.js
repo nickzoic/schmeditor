@@ -5,7 +5,7 @@
  *
  *   const editor = new SchemaEditor(divElement, jsonSchema, document, options?);
  *
- *   editor.onChange((doc, info) => { ... });   // user edits (info = {path, source})
+ *   editor.onChange((doc, info) => { ... });   // user edits (info = {source, patch, path, value})
  *   editor.getDocument();                       // deep copy of the current document
  *   editor.setDocument(doc);                    // replace everything
  *   editor.get('/a/b/0');                       // read (JSON Pointer or array path)
@@ -16,6 +16,7 @@
  *   editor.validate();                          // -> [{path, keyword, message}]
  *   editor.isValid();
  *   editor.destroy();
+ *   SchemaEditor.applyPatch(doc, patch);        // apply a JSON Patch to a copy of doc
  *
  * Guarantee: every edit (UI or programmatic) is validated against the full
  * schema before it is applied. An edit that would introduce a new validation
@@ -23,6 +24,18 @@
  * lists the problems). A document that starts out valid therefore stays valid.
  * A document that starts out invalid is displayed with its errors, and edits
  * may only reduce them, never add new kinds.
+ *
+ * The change callback is called as callback(doc, info). `doc` is a copy of the whole
+ * document and `info` is {source, patch, path, value}:
+ *   source  "user" for edits in the page, "api" for set/remove/... (see notifyOnProgrammatic);
+ *   patch   a JSON Patch (RFC 6902). Applied to the document as it was before the change, it
+ *           gives `doc`. It uses replace, add and remove (and move, for reordering an array
+ *           item or renaming a property), followed by anything the editor changed along with
+ *           the edit, such as a property that became required and was filled in;
+ *   path    JSON Pointer to the main thing that changed ("" for the whole document);
+ *   value   a copy of the new value at `path`, or undefined if it was removed. After a move,
+ *           and after insert/push, `path` is the array and `value` its new contents.
+ * SchemaEditor.applyPatch(doc, patch) applies a JSON Patch to a copy of a document.
  *
  * Options:
  *   onChange               function(doc, info)  same as editor.onChange(fn)
@@ -126,6 +139,99 @@
   function replaceKeys(obj, entries) {
     for (const k of Object.keys(obj)) delete obj[k];
     for (const [k, v] of entries) obj[k] = v;
+  }
+
+  /* ---------------------------- JSON Patch (RFC 6902) ---------------------------- */
+
+  // A list of operations that turns `a` into `b`. Used for whatever an edit changed beyond
+  // the one thing the user did (for example properties the editor filled in); the main
+  // operation of each edit is chosen by the editor itself.
+  function diffPatch(a, b) {
+    const ops = [];
+    diffValue(a, b, '', ops);
+    return ops;
+  }
+  function diffValue(a, b, path, ops) {
+    if (deepEqual(a, b)) return;
+    if (isObj(a) && isObj(b)) {
+      for (const k of Object.keys(a)) if (hasOwn(b, k)) diffValue(a[k], b[k], path + '/' + escTok(k), ops);
+      for (const k of Object.keys(a)) if (!hasOwn(b, k)) ops.push({ op: 'remove', path: path + '/' + escTok(k) });
+      for (const k of Object.keys(b)) if (!hasOwn(a, k)) ops.push({ op: 'add', path: path + '/' + escTok(k), value: clone(b[k]) });
+    } else if (Array.isArray(a) && Array.isArray(b)) {
+      // Skip what the arrays share at both ends, then compare what is left in pairs.
+      let head = 0;
+      while (head < a.length && head < b.length && deepEqual(a[head], b[head])) head++;
+      let ta = a.length, tb = b.length;
+      while (ta > head && tb > head && deepEqual(a[ta - 1], b[tb - 1])) { ta--; tb--; }
+      const shared = Math.min(ta, tb) - head;
+      for (let i = 0; i < shared; i++) diffValue(a[head + i], b[head + i], path + '/' + (head + i), ops);
+      for (let i = shared; i < ta - head; i++) ops.push({ op: 'remove', path: path + '/' + (head + shared) });
+      for (let i = shared; i < tb - head; i++) ops.push({ op: 'add', path: path + '/' + (head + i), value: clone(b[head + i]) });
+    } else {
+      ops.push({ op: 'replace', path, value: clone(b) });
+    }
+  }
+
+  // Apply a JSON Patch to a copy of `doc` and return the copy; `doc` itself is not touched.
+  // Implements add, remove, replace, move, copy and test. Throws an Error naming the failing
+  // operation. It only edits the JSON: it does not check the result against any schema.
+  function applyPatch(doc, patch) {
+    if (!Array.isArray(patch)) throw new Error('A JSON Patch must be an array of operations');
+    const arrayIndex = (k, max) => {
+      if (!/^(0|[1-9]\d*)$/.test(k) || Number(k) > max) throw new Error('invalid array index "' + k + '"');
+      return Number(k);
+    };
+    const locate = (root, path) => {                 // the value at a path, which must exist
+      let cur = root;
+      for (const k of path) {
+        if (Array.isArray(cur)) cur = cur[arrayIndex(k, cur.length - 1)];
+        else if (isObj(cur) && hasOwn(cur, k)) cur = cur[k];
+        else throw new Error('no value at "' + toPtr(path) + '"');
+      }
+      return cur;
+    };
+    const add = (root, path, value) => {
+      if (!path.length) return value;
+      const parent = locate(root, path.slice(0, -1)), k = path[path.length - 1];
+      if (Array.isArray(parent)) parent.splice(k === '-' ? parent.length : arrayIndex(k, parent.length), 0, value);
+      else if (isObj(parent) && k !== '__proto__') parent[k] = value;
+      else throw new Error('cannot add at "' + toPtr(path) + '"');
+      return root;
+    };
+    const remove = (root, path) => {
+      if (!path.length) throw new Error('cannot remove the whole document');
+      const parent = locate(root, path.slice(0, -1)), k = path[path.length - 1];
+      locate(root, path);
+      if (Array.isArray(parent)) parent.splice(arrayIndex(k, parent.length - 1), 1);
+      else delete parent[k];
+      return root;
+    };
+    let root = clone(doc);
+    patch.forEach((o, i) => {
+      try {
+        if (!isObj(o) || typeof o.path !== 'string') throw new Error('not an operation');
+        const path = parsePath(o.path);
+        const from = () => parsePath(o.from);
+        switch (o.op) {
+          case 'add': root = add(root, path, clone(o.value)); break;
+          case 'remove': root = remove(root, path); break;
+          case 'replace': locate(root, path); root = path.length ? add(remove(root, path), path, clone(o.value)) : clone(o.value); break;
+          case 'move': {
+            const f = from();
+            if (path.length > f.length && f.every((k, n) => k === path[n])) throw new Error('cannot move into itself');
+            const v = locate(root, f);
+            root = add(remove(root, f), path, v);
+            break;
+          }
+          case 'copy': root = add(root, path, clone(locate(root, from()))); break;
+          case 'test': if (!deepEqual(locate(root, path), o.value)) throw new Error('the value is not as expected'); break;
+          default: throw new Error('unknown operation "' + o.op + '"');
+        }
+      } catch (e) {
+        throw new Error('JSON Patch operation ' + i + (isObj(o) ? ' (' + o.op + ' ' + o.path + ')' : '') + ' failed: ' + e.message);
+      }
+    });
+    return root;
   }
 
   /* ------------------------------------------------------------------ *
@@ -251,10 +357,11 @@
     }
     getDocument() { return clone(this._doc); }
     setDocument(doc) {
+      const before = this._doc;
       this._doc = clone(doc);
       this._setErrors(this._validateAll(this._doc));
       this._build();
-      if (this.opts.notifyOnProgrammatic) this._fire({ path: '', source: 'api' });
+      if (this.opts.notifyOnProgrammatic) this._notify([], 'api', { primary: [{ op: 'replace', path: '', value: clone(doc) }] }, before);
       return this;
     }
     get(path) { return clone(getAt(this._doc, parsePath(path))); }
@@ -264,7 +371,7 @@
     }
     remove(path) {
       const p = parsePath(path);
-      return this._api(d => removeAt(d, p), p);
+      return this._api(d => removeAt(d, p), p, { removed: true });
     }
     insert(path, index, value) {
       const p = parsePath(path);
@@ -273,7 +380,7 @@
         if (!Array.isArray(a)) throw new Error('Not an array: ' + toPtr(p));
         if (!Number.isInteger(index) || index < 0 || index > a.length) throw new Error('Invalid array index ' + index);
         a.splice(index, 0, clone(value));
-      }, p);
+      }, p, { primary: [{ op: 'add', path: toPtr(p.concat(index)), value: clone(value) }] });
     }
     push(path, value) {
       const p = parsePath(path);
@@ -281,7 +388,7 @@
         const a = getAt(d, p);
         if (!Array.isArray(a)) throw new Error('Not an array: ' + toPtr(p));
         a.push(clone(value));
-      }, p);
+      }, p, { primary: [{ op: 'add', path: toPtr(p.concat((getAt(this._doc, p) || []).length)), value: clone(value) }] });
     }
     validate() { return this._errs.map(e => ({ ...e })); }
     isValid() { return this._errs.length === 0; }
@@ -369,35 +476,69 @@
       return errors.map(e => (e.path && e.path !== ptr ? e.path + ': ' : '') + e.message);
     }
 
-    _api(mutator, path) {
+    _api(mutator, path, opts) {
       const r = this._tryMutate(mutator);
       if (!r.ok) {
         const err = new Error('Change rejected: ' + this._fmt(r.errors, '').join('; '));
         err.errors = r.errors.map(e => ({ ...e }));
         throw err;
       }
+      const before = this._doc;
       this._doc = r.next;
       this._setErrors(r.errs);
       this._build();
-      if (this.opts.notifyOnProgrammatic) this._fire({ path: toPtr(path), source: 'api' });
+      if (this.opts.notifyOnProgrammatic) this._notify(path, 'api', opts || {}, before);
       return this;
     }
 
     // UI-originated change. `srcEl` is where the 'se-commit' event starts bubbling from.
-    _commit(mutator, srcEl, path, noRepair) {
-      const r = this._tryMutate(mutator, !noRepair);
+    // `opts.noRepair` skips filling in newly required properties; `opts.removed` says that
+    // whatever was at `path` is gone (so the callback gets no value for it); `opts.primary`
+    // gives the edit's main JSON Patch operations when they aren't a simple set/add/remove.
+    _commit(mutator, srcEl, path, opts) {
+      const o = opts || {};
+      const r = this._tryMutate(mutator, !o.noRepair);
       if (!r.ok) return r;
-      const changed = !deepEqual(this._doc, r.next);
+      const before = this._doc;
+      const changed = !deepEqual(before, r.next);
       this._doc = r.next;
       this._setErrors(r.errs);
       if (srcEl) srcEl.dispatchEvent(new CustomEvent('se-commit', { bubbles: true }));
       this._refreshErrors();
-      if (changed) this._fire({ path: toPtr(path), source: 'user' });
+      if (changed) this._notify(path, 'user', o, before);
       return r;
     }
 
-    _fire(info) {
+    // The main operations of an edit, as JSON Patch. `o.primary` gives them outright (for moves,
+    // renames and inserts); otherwise the edit set, added or removed whatever is at `path`.
+    _primary(before, after, path, o) {
+      if (o.primary) return o.primary;
+      const ptr = toPtr(path);
+      if (o.removed) return [{ op: 'remove', path: ptr }];
+      const was = getAt(before, path), now = getAt(after, path);
+      if (was === undefined) return now === undefined ? [] : [{ op: 'add', path: ptr, value: clone(now) }];
+      return deepEqual(was, now) ? [] : [{ op: 'replace', path: ptr, value: clone(now) }];
+    }
+
+    // A JSON Patch that turns `before` into `after`: the edit's main operations, then anything
+    // else the editor changed along with it. Always checked, so it is never wrong: if the
+    // pieces didn't add up, the patch replaces the whole document.
+    _makePatch(before, after, primary) {
+      const works = ops => { try { return deepEqual(applyPatch(before, ops), after); } catch (e) { return false; } };
+      try {
+        const ops = primary.map(clone).concat(diffPatch(applyPatch(before, primary), after));
+        if (works(ops)) return ops;
+      } catch (e) { /* fall through */ }
+      const plain = diffPatch(before, after);
+      return works(plain) ? plain : [{ op: 'replace', path: '', value: clone(after) }];
+    }
+
+    // Tell the callback about a change. `doc` is a copy of the whole document; `info` is
+    // {source, patch, path, value}, where `value` is the new value at `path` (undefined if removed).
+    _notify(path, source, o, before) {
       if (!this._cb) return;
+      const patch = this._makePatch(before, this._doc, this._primary(before, this._doc, path, o));
+      const info = { source, patch, path: toPtr(path), value: o.removed ? undefined : clone(getAt(this._doc, path)) };
       try { this._cb(clone(this._doc), info); } catch (e) { console.error(e); }
     }
 
@@ -1044,7 +1185,7 @@
         if (hasOwn(value, key)) {
           if (!req.has(key))
             head.append(button('✕', 'Remove this property', keys.length <= minP, b => {
-              const r = this._commit(d => { delete getAt(d, path)[key]; }, row, childPath, true);
+              const r = this._commit(d => { delete getAt(d, path)[key]; }, row, childPath, { noRepair: true, removed: true });
               if (r.ok) rebuild(); else this._notice(row, this._fmt(r.errors, toPtr(path)));
             }));
           row.append(this._renderNode(sub, childPath));
@@ -1091,7 +1232,7 @@
         const row = h('div', { class: 'se-field se-extra' }, head);
         if (!locked)
           head.append(button('✕', 'Remove this property', keys.length <= minP, b => {
-            const r = this._commit(d => { delete getAt(d, path)[key]; }, row, childPath, true);
+            const r = this._commit(d => { delete getAt(d, path)[key]; }, row, childPath, { noRepair: true, removed: true });
             if (r.ok) rebuild(); else this._notice(row, this._fmt(r.errors, toPtr(path)));
           }));
         keyInput.addEventListener('change', () => {
@@ -1102,7 +1243,7 @@
             if (nk === '' || nk === '__proto__') throw new Error('Invalid property name');
             if (hasOwn(o, nk)) throw new Error('Property "' + nk + '" already exists');
             replaceKeys(o, Object.entries(o).map(([k, v]) => [k === key ? nk : k, v]));
-          }, row, path.concat(nk));
+          }, row, path.concat(nk), { primary: [{ op: 'move', from: toPtr(path.concat(key)), path: toPtr(path.concat(nk)) }] });
           if (r.ok) rebuild();
           else { keyInput.value = key; this._notice(row, this._fmt(r.errors, toPtr(path))); }
         });
@@ -1160,7 +1301,7 @@
             const a = getAt(d, path);
             const [x] = a.splice(i, 1);
             a.splice(i + dir, 0, x);
-          }, row, path.concat(i));
+          }, row, path, { primary: [{ op: 'move', from: toPtr(path.concat(i)), path: toPtr(path.concat(i + dir)) }] });
           if (r.ok) rebuild(); else this._notice(row, this._fmt(r.errors, toPtr(path)));
         };
         // Tuple slots (prefixItems / array-form items) have a schema tied to their position, so
@@ -1174,7 +1315,7 @@
             button('↓', 'Move down', i === arr.length - 1, () => move(1)));
         if (!fixed && (!pinned || i >= minI))
           ctl.append(button('✕', 'Remove item', arr.length <= minI || (pinned && i !== arr.length - 1), () => {
-            const r = this._commit(d => { getAt(d, path).splice(i, 1); }, row, path.concat(i));
+            const r = this._commit(d => { getAt(d, path).splice(i, 1); }, row, path.concat(i), { removed: true });
             if (r.ok) rebuild(); else this._notice(row, this._fmt(r.errors, toPtr(path)));
           }));
         row.append(h('span', { class: 'se-idx' }, String(i + 1)), main);
@@ -1198,6 +1339,10 @@
       list.append(addRow);
     }
   }
+
+  /** Apply a JSON Patch (RFC 6902) to a copy of a document, e.g. one received by the change callback. */
+  SchemaEditor.applyPatch = applyPatch;
+  SchemaEditor._diffPatch = diffPatch;       // internal; exposed for the tests
 
   return SchemaEditor;
 });

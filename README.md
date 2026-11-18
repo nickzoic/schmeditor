@@ -70,13 +70,49 @@ build step or server is needed). It has two examples:
 | | |
 | --- | --- |
 | `new SchemaEditor(element, schema, document, options?)` | Render the editor into `element`. Omit `document` to start from a minimal valid one. |
-| `editor.onChange(callback)` | Run `callback(doc, info)` after each user edit; `info` is `{path, source: 'user'}`. Pass `null` to clear. |
+| `editor.onChange(callback)` | Run `callback(doc, info)` after each user edit (see below). Pass `null` to clear. |
 | `editor.getDocument()` / `editor.setDocument(doc)` | Read a copy of the document, or replace it (it need not be valid). |
 | `editor.get(path)` | Read a copy of a value. |
 | `editor.set(path, value)` / `editor.remove(path)` | Replace or add a value; delete a property or array item. |
 | `editor.insert(path, index, value)` / `editor.push(path, value)` | Add to an array. |
 | `editor.validate()` / `editor.isValid()` | `[{path, keyword, message}, …]` for the current document. |
 | `editor.destroy()` | Empty the container and drop the callback. |
+
+**The change callback** is called as `callback(doc, info)`. `doc` is a copy of the whole document and
+`info` is `{source, patch, path, value}`:
+
+| | |
+| --- | --- |
+| `source` | `'user'` for edits made in the page, or `'api'` for `set`/`remove`/… when `notifyOnProgrammatic` is on |
+| `patch` | a [JSON Patch](https://datatracker.ietf.org/doc/html/rfc6902) (RFC 6902): applied to the document as it was before the change, it gives `doc` |
+| `path` | JSON Pointer to the main thing that changed (`""` for the whole document) |
+| `value` | a copy of the new value at `path`, or `undefined` if it was removed |
+
+```js
+editor.onChange((doc, info) => {
+  // typing "Alice" in the name field:
+  //   info.patch  -> [{ op: 'replace', path: '/name', value: 'Alice' }]
+  // choosing role "staff", which makes `department` required, so the editor fills it in:
+  //   info.patch  -> [{ op: 'replace', path: '/role', value: 'staff' },
+  //                   { op: 'add', path: '/department', value: 'Operations' }]
+  mirror = SchemaEditor.applyPatch(mirror, info.patch);   // keep another copy in step
+});
+```
+
+The patch describes what the user did: `replace`, `add` or `remove`, and `move` for reordering an
+array item or renaming a property; choosing another `oneOf` alternative replaces the whole value.
+Anything else the editor changed along with the edit, such as filling in a newly required property,
+follows as further operations. The patch is checked against the document before it is sent, so it is
+never wrong: in the unlikely case that it could not reproduce the document, it is a single `replace`
+of the whole document.
+
+For a removal `value` is `undefined`, even when a later array item shifts into the removed item's
+index. Moving an array item changes two items, so `path` is the array and `value` its new contents;
+`insert` and `push` likewise report the array (their patch has the `add`).
+
+`SchemaEditor.applyPatch(doc, patch)` applies a JSON Patch to a copy of a document and returns it. It
+implements all six RFC 6902 operations, throws an `Error` naming the failing operation, and does not
+check the result against any schema.
 
 Paths are JSON Pointers (`"/tags/0"`, `""` for the root) or arrays of keys. The programmatic edits
 are checked like UI edits: a change that would make the document less valid throws an `Error` whose

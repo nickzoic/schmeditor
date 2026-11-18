@@ -385,7 +385,13 @@ function mount(key) {
   $('pout').textContent = '';
   $('pmsg').textContent = '';
   editor = new SchemaEditor($('editor'), current.schema, current.initial);
-  editor.onChange((doc, info) => { say('Edited ' + (info.path || 'document') + ' in the UI.'); render(); updatePreview(); });
+  editor.onChange((doc, info) => {
+    // info.patch is a JSON Patch (RFC 6902) describing the change; info.path and info.value say what changed
+    const patch = JSON.stringify(info.patch);
+    say('patch: ' + (patch.length > 110 ? patch.slice(0, 109) + '…' : patch));
+    render();
+    updatePreview();
+  });
 
   for (const k of Object.keys(examples)) {
     $('ex-' + k).setAttribute('aria-selected', String(k === key));
