@@ -242,6 +242,19 @@ test('a patch is never wrong: bad main operations fall back to a plain diff, the
   assert.deepEqual(apply([1, 2, 3], editor._makePatch([1, 2, 3], [3, 1, 2], [{ op: 'move', from: '/0', path: '/1' }])), [3, 1, 2]);
 });
 
+test('stylesheet: colours live in custom properties, every var() is defined, dark mode is declared', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'schmeditor.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const defined = new Set([...css.matchAll(/(--se-[\w-]+)\s*:/g)].map(m => m[1]));
+  for (const m of css.matchAll(/var\((--se-[\w-]+)/g)) assert.ok(defined.has(m[1]), `${m[1]} is used but never defined`);
+  const stray = css.split('\n').filter(line => /#[0-9a-f]{3,8}\b|\brgba?\(|\bhsla?\(/i.test(line) && !/^\s*--se-/.test(line));
+  assert.deepEqual(stray, [], 'hard-coded colours outside custom properties');
+  assert.match(css, /color-scheme:\s*light dark/);
+  assert.match(css, /@media \(prefers-color-scheme:\s*dark\)/);
+  assert.match(css, /\[data-theme="light"\]/);
+  assert.match(css, /\[data-theme="dark"\]/);
+  assert.equal((css.match(/{/g) || []).length, (css.match(/}/g) || []).length, 'unbalanced braces');
+});
+
 test('applyPatch implements the examples in RFC 6902 appendix A', () => {
   const apply = SchemaEditor.applyPatch;
   const same = (doc, patch, expected) => assert.deepEqual(apply(doc, patch), expected);
@@ -328,6 +341,152 @@ test('diffs always reproduce the target document (randomised)', () => {
     const patch = SchemaEditor._diffPatch(a, b);
     assert.deepEqual(SchemaEditor.applyPatch(a, patch), b, JSON.stringify({ a, b, patch }));
   }
+});
+
+// ---- the render hook
+
+test('render hook: called for every node, with its resolved schema, value and path', () => {
+  const seen = [];
+  make({ type: 'object', properties: { a: { $ref: '#/$defs/s' }, b: { type: 'array', items: { type: 'integer' } } },
+         $defs: { s: { type: 'string', title: 'A string' } } },
+  { a: 'x', b: [1, 2] },
+  { render: info => { seen.push([info.path, info.schema.type, info.value]); } });
+  assert.deepEqual(seen, [['', 'object', { a: 'x', b: [1, 2] }], ['/a', 'string', 'x'], ['/b', 'array', [1, 2]],
+    ['/b/0', 'integer', 1], ['/b/1', 'integer', 2]]);
+  const resolved = [];
+  make({ $ref: '#/$defs/s', $defs: { s: { type: 'string', title: 'A string' } } }, 'x', { render: i => { resolved.push(i.schema); } });
+  assert.equal(resolved.length, 1);
+  assert.equal('$ref' in resolved[0], false);                                             // the $ref has been resolved…
+  assert.equal(resolved[0].type, 'string');                                               // …into what it pointed at
+  assert.equal(resolved[0].title, 'A string');
+});
+
+test('render hook: returning undefined or null keeps the normal rendering', () => {
+  for (const nothing of [undefined, null]) {
+    const { el } = make({ type: 'string' }, 'x', { render: () => nothing });
+    assert.ok(el.querySelector('input.se-input'));
+  }
+});
+
+test('render hook: a returned element replaces the node\'s editing controls', () => {
+  const stars = info => {
+    if (info.schema.type !== 'number' || info.schema.maximum !== 5) return undefined;
+    const row = document.createElement('span');
+    row.className = 'stars';
+    for (let n = 1; n <= 5; n++) {
+      const b = document.createElement('button');
+      b.textContent = n <= info.value ? '★' : '☆';
+      b.addEventListener('click', () => info.set(n));
+      row.append(b);
+    }
+    return row;
+  };
+  const schema = { type: 'object', properties: { rating: { type: 'number', minimum: 0, maximum: 5 }, name: { type: 'string' } } };
+  const events = [];
+  const { el, editor } = make(schema, { rating: 2, name: 'x' }, { render: stars, onChange: (d, i) => events.push(i) });
+  assert.equal(node(el, '/rating').querySelector('input'), null);                         // the default input is gone…
+  assert.ok(node(el, '/name').querySelector('input'));                                     // …but only for that node
+  assert.ok(node(el, '/rating').closest('.se-field').querySelector('.se-label'));          // the label is still drawn
+  assert.equal(node(el, '/rating').querySelectorAll('.stars button').length, 5);
+  node(el, '/rating').querySelectorAll('.stars button')[3].click();
+  assert.equal(editor.get('/rating'), 4);
+  assert.deepEqual(events.at(-1).patch, [{ op: 'replace', path: '/rating', value: 4 }]);
+  assert.equal(events.at(-1).source, 'user');
+});
+
+test('render hook: set() checks the schema and reports why a value was refused', () => {
+  let info;
+  const { editor } = make({ type: 'integer', minimum: 0, maximum: 5 }, 3, { render: i => { info = i; } });
+  assert.deepEqual(info.set(4), { ok: true, errors: [] });
+  assert.equal(editor.get(''), 4);
+  const refused = info.set(99);
+  assert.equal(refused.ok, false);
+  assert.match(refused.errors[0], /at most 5/);
+  assert.equal(editor.get(''), 4);
+});
+
+test('render hook: a node can be drawn by value as well as by schema', () => {
+  const colours = info => {
+    if (typeof info.value !== 'string' || !/^#[0-9a-f]{6}$/i.test(info.value)) return undefined;
+    const input = document.createElement('input');
+    input.type = 'color';
+    input.value = info.value;
+    input.addEventListener('input', () => info.set(input.value));
+    return input;
+  };
+  const { el, editor } = make({ type: 'object', properties: { a: { type: 'string' }, b: { type: 'string' } } },
+    { a: '#3b82f6', b: 'not a colour' }, { render: colours });
+  assert.equal(node(el, '/a').querySelector('input').type, 'color');
+  assert.equal(node(el, '/b').querySelector('input').type, 'text');
+  const picker = node(el, '/a').querySelector('input');
+  picker.value = '#ff0000';
+  fire(picker, 'input');
+  assert.equal(editor.get('/a'), '#ff0000');
+});
+
+test('render hook: it can draw a whole object or array, and is called again after programmatic edits', () => {
+  const calls = [];
+  const summary = info => {
+    if (info.schema.type !== 'array') return undefined;
+    calls.push(info.value);
+    const p = document.createElement('p');
+    p.className = 'summary';
+    p.textContent = info.value.length + ' items';
+    return p;
+  };
+  const { el, editor } = make({ type: 'object', properties: { list: { type: 'array', items: { type: 'string' } } } },
+    { list: ['a', 'b'] }, { render: summary });
+  assert.equal(node(el, '/list').querySelector('.summary').textContent, '2 items');
+  assert.equal(node(el, '/list').querySelectorAll('.se-item').length, 0);                  // no default rows
+  editor.push('/list', 'c');
+  assert.equal(node(el, '/list').querySelector('.summary').textContent, '3 items');
+  assert.deepEqual(calls, [['a', 'b'], ['a', 'b', 'c']]);
+});
+
+test('render hook: for alternatives, it is called for the node and then for the chosen one', () => {
+  const schema = { oneOf: [{ title: 'Text', type: 'string' }, { title: 'Count', type: 'integer' }] };
+  const seen = [];
+  const { el } = make(schema, 7, { render: info => {
+    seen.push(info.schema.oneOf ? 'union' : info.schema.type);
+    if (info.schema.type === 'integer') { const b = document.createElement('b'); b.className = 'custom'; return b; }
+    return undefined;
+  } });
+  assert.deepEqual(seen, ['union', 'integer']);
+  assert.ok(el.querySelector('select.se-variant'), 'the selector for the alternatives is still there');
+  assert.ok(el.querySelector('b.custom'));
+});
+
+test('render hook: set() from a custom control makes the editor update dependent fields', () => {
+  let setRole;
+  const { el, editor } = make(contactSchema, contactDoc, { render: info => {
+    if (info.path !== '/role') return undefined;
+    setRole = info.set;
+    const b = document.createElement('button');
+    b.className = 'role-button';
+    return b;
+  } });
+  assert.ok(node(el, '/role').querySelector('.role-button'));
+  assert.deepEqual(setRole('staff'), { ok: true, errors: [] });                           // role "staff" requires a department
+  assert.equal(editor.get('/department'), 'Operations');
+  assert.ok(node(el, '/department'));
+  assert.ok(node(el, '/role').querySelector('.role-button'), 'the custom control is drawn again after the rebuild');
+});
+
+test('render hook: a hook that throws, or returns a non-element, falls back to the normal rendering', () => {
+  const logged = [];
+  const original = console.error;
+  console.error = (...args) => logged.push(args.join(' '));
+  try {
+    const thrown = make({ type: 'string' }, 'x', { render: () => { throw new Error('boom'); } });
+    assert.ok(thrown.el.querySelector('input.se-input'));
+    const wrong = make({ type: 'string' }, 'x', { render: () => 'a string, not an element' });
+    assert.ok(wrong.el.querySelector('input.se-input'));
+  } finally {
+    console.error = original;
+  }
+  assert.equal(logged.length, 2);
+  assert.match(logged[0], /threw/);
+  assert.match(logged[1], /must return an element/);
 });
 
 test('if/then: choosing role "staff" adds the newly required department', () => {

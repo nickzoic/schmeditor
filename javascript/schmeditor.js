@@ -37,8 +37,23 @@
  *           and after insert/push, `path` is the array and `value` its new contents.
  * SchemaEditor.applyPatch(doc, patch) applies a JSON Patch to a copy of a document.
  *
+ * Custom rendering: the `render` option is called for every node as it is drawn, with
+ * info = {schema, value, path, set, editor}:
+ *   schema  the node's schema, with $ref, allOf and if/then/else resolved (treat as read-only);
+ *   value   a copy of the node's current value;
+ *   path    JSON Pointer to the node ("" for the document);
+ *   set(v)  replace the node's value like a user edit, so it is checked against the schema and
+ *           reported to the change callback. Returns {ok, errors} (errors are messages);
+ *   editor  the SchemaEditor.
+ * Return an element to draw the node with it, or undefined to use the normal rendering. The
+ * element replaces the node's editing controls only: the label, description and remove button
+ * around it, and any validation messages above it, are still drawn by the editor. For a node
+ * with oneOf/anyOf or several types, `render` is called for the node itself and, if it returns
+ * undefined, again for whichever alternative is chosen.
+ *
  * Options:
  *   onChange               function(doc, info)  same as editor.onChange(fn)
+ *   render                 function(info)       draw a node yourself, or return undefined
  *   notifyOnProgrammatic   false  also call the callback for set/remove/push/...
  *   validateFormats        true   treat "format" (email, date, uri, ...) as an assertion
  *
@@ -1013,11 +1028,46 @@
       return el;
     }
 
+    // The `render` option: let the host draw a node itself. Returns an element, or null to use
+    // the normal rendering (also if the hook throws or returns something that isn't an element).
+    _customRender(s, value, path, body) {
+      if (typeof this.opts.render !== 'function') return null;
+      const ptr = toPtr(path);
+      let el = null;
+      const info = {
+        schema: s,
+        value: clone(value),
+        path: ptr,
+        editor: this,
+        // Replace this node's value like a user edit: checked against the schema, reported to the callback.
+        set: v => {
+          const r = this._commit(d => setAt(d, path, clone(v)), el || body, path);
+          return { ok: r.ok, errors: r.ok ? [] : this._fmt(r.errors, ptr) };
+        },
+      };
+      let out;
+      try {
+        out = this.opts.render(info);
+      } catch (e) {
+        console.error('schmeditor: the render hook threw for ' + (ptr || 'the document') + ':', e);
+        return null;
+      }
+      if (out === undefined || out === null) return null;
+      if (typeof out !== 'object' || out.nodeType !== 1) {
+        console.error('schmeditor: the render hook must return an element or undefined (for ' + (ptr || 'the document') + ')');
+        return null;
+      }
+      el = out;
+      return out;
+    }
+
     _fillBody(ctx) {
       const { schema, path, body } = ctx;
       const value = getAt(this._doc, path);
       const s = this._norm(schema, value);
       ctx.s = s;
+      const custom = this._customRender(s, value, path, body);
+      if (custom) return void body.append(custom);
       const variants = this._variants(s, value);
       if (variants) return this._renderVariant(ctx, variants);
       if ('const' in s) return void body.append(h('code', { class: 'se-const' }, JSON.stringify(s.const)));
