@@ -1,19 +1,53 @@
 /*!
  * schmeditor: styles for the SchemaEditor component (schmeditor.js).
  *
- * Colours come from the surrounding text colour, so the editor suits light and dark pages.
- * Override the custom properties on .se-root to restyle, for example:
+ * Light and dark: the editor follows the browser's colour-scheme setting (prefers-color-scheme).
+ * It paints its own background and text colour, using the browser's Canvas and CanvasText colours,
+ * so form controls, scrollbars and everything else match.
+ *
+ * To override the setting, put an attribute on the element the editor renders into:
+ *   <div id="editor" data-theme="dark"></div>        (or "light")
+ *
+ * To restyle it, or to blend it into a page that manages its own colours, set custom properties
+ * on .se-root. For example:
+ *   .se-root { --se-bg: transparent; --se-fg: inherit; --se-padding: 0; }
  *   .se-root { --se-err: #b00020; --se-focus: #0a7; }
  */
 
 .se-root {
-  --se-line: color-mix(in srgb,currentColor 22%,transparent);
-  --se-soft: color-mix(in srgb,currentColor 7%,transparent);
-  --se-muted: color-mix(in srgb,currentColor 62%,transparent);
-  --se-err: #d1342f;
-  --se-focus: #3b82f6;
-  font: 14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  color-scheme: light dark;
+  --se-bg: Canvas;
+  --se-fg: CanvasText;
+  --se-padding: 12px;
+  --se-line: color-mix(in srgb, currentColor 22%, transparent);
+  --se-soft: color-mix(in srgb, currentColor 7%, transparent);
+  --se-muted: color-mix(in srgb, currentColor 62%, transparent);
+  --se-err: #c62828;
+  --se-focus: #1d63d6;
+  background: var(--se-bg);
+  color: var(--se-fg);
+  padding: var(--se-padding);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   text-align: left;
+}
+
+/* Browser set to dark: lighter accents that stay readable on a dark background. */
+@media (prefers-color-scheme: dark) {
+  .se-root:not([data-theme="light"]) {
+    --se-err: #ff7b72;
+    --se-focus: #79b8ff;
+  }
+}
+
+/* Explicit overrides, whatever the browser says. */
+.se-root[data-theme="light"] {
+  color-scheme: light;
+}
+
+.se-root[data-theme="dark"] {
+  color-scheme: dark;
+  --se-err: #ff7b72;
+  --se-focus: #79b8ff;
 }
 
 .se-root * {

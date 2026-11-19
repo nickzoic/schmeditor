@@ -34,6 +34,24 @@ jobs:
       - run: npm ci
       - run: npm test
 
+  browser:
+    name: JavaScript in a real browser (Chrome)
+    runs-on: ubuntu-latest
+    env:
+      REQUIRE_BROWSER: "1"          # a missing Chrome is a failure here, not a skip
+    defaults:
+      run:
+        working-directory: javascript
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: javascript/package-lock.json
+      - run: npm ci
+      - run: npm run test:browser
+
   python:
     name: Python ${{ matrix.python }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
