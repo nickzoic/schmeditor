@@ -30,6 +30,9 @@ A document that starts out valid therefore stays valid, however you edit it.
 * **Works on documents that start invalid.** Their errors are shown, and edits may only reduce them.
 * Exposes a **programmatic API** to read and change the document, and a **change callback** that
   receives each change as a [JSON Patch](https://datatracker.ietf.org/doc/html/rfc6902) (RFC 6902).
+* **Lets you draw any node yourself.** The browser component has a `render` hook that can replace how
+  a node is drawn, based on its schema and value, and fall back to the normal rendering otherwise.
+* The browser component **follows the browser's light/dark setting**.
 
 ## Repository layout
 
@@ -54,9 +57,23 @@ Include the stylesheet and the script, then create an editor:
 </script>
 ```
 
-`schmeditor.js` has no dependencies and also works as a CommonJS module (`require`). The stylesheet
-takes its colours from the surrounding text, so it suits light and dark pages; override the
-`--se-*` custom properties on `.se-root` to restyle it.
+`schmeditor.js` has no dependencies and also works as a CommonJS module (`require`).
+
+**Light and dark.** The stylesheet follows the browser's colour-scheme setting
+(`prefers-color-scheme`). The editor paints its own background and text colour, using the browser's
+`Canvas` and `CanvasText`, so form controls and scrollbars match too, and its error and focus
+colours switch to lighter shades on dark. To force a theme whatever the browser says, put an
+attribute on the element you render into: `<div id="editor" data-theme="dark"></div>` (or
+`"light"`). To restyle it, or to blend it into a page that manages its own colours, set custom
+properties on `.se-root`:
+
+```css
+.se-root { --se-bg: transparent; --se-fg: inherit; --se-padding: 0; }   /* take the page's colours */
+.se-root { --se-err: #b00020; --se-focus: #0a7; }                         /* or change the accents */
+```
+
+The properties are `--se-bg`, `--se-fg`, `--se-padding`, `--se-line`, `--se-soft`, `--se-muted`,
+`--se-err` and `--se-focus`.
 
 **Demonstration page.** Open [`javascript/index.html`](javascript/index.html) in a browser (no
 build step or server is needed). It has two examples:
@@ -121,15 +138,70 @@ are checked like UI edits: a change that would make the document less valid thro
 
 Options: `onChange`; `notifyOnProgrammatic` (default `false`: also call the callback for
 `set`/`remove`/`insert`/`push`/`setDocument`, with `source: 'api'`); `validateFormats` (default
-`true`: treat `format` as an assertion).
+`true`: treat `format` as an assertion); `render` (a hook to draw nodes yourself, below).
+
+### Custom rendering
+
+The `render` option is a function called for every node as it is drawn. Return an element to draw
+that node yourself, or `undefined` to use the normal rendering:
+
+```js
+const editor = new SchemaEditor(div, schema, doc, {
+  render(info) {
+    // By value: any string like "#3b82f6" gets a colour picker.
+    if (typeof info.value === 'string' && /^#[0-9a-f]{6}$/i.test(info.value)) {
+      const input = document.createElement('input');
+      input.type = 'color';
+      input.value = info.value;
+      input.addEventListener('input', () => {
+        const result = info.set(input.value);               // checked against the schema, like a typed edit
+        if (!result.ok) console.log(result.errors);
+      });
+      return input;
+    }
+    // By schema: a number from 0 to 5 could get a star rating, and so on.
+    if (info.schema.type === 'number' && info.schema.maximum === 5) return starRating(info);
+  },
+});
+```
+
+`info` is `{schema, value, path, set, editor}`:
+
+| | |
+| --- | --- |
+| `schema` | the node's schema, with `$ref`, `allOf` and `if`/`then`/`else` already resolved. Treat it as read-only. |
+| `value` | a copy of the node's current value |
+| `path` | JSON Pointer to the node (`""` for the document) |
+| `set(value)` | replace the node's value, like a user edit: it is checked against the whole schema, reported to the change callback (with its patch), and conditional fields update. Returns `{ok, errors}`, where `errors` are messages to show if it was refused. |
+| `editor` | the `SchemaEditor` |
+
+The element you return replaces the node's *editing controls* only. The label, description and remove
+button around it, and any validation messages above it, are still drawn by the editor. For an object
+or array it replaces everything inside it, so you draw the children yourself.
+
+For a node with `oneOf`/`anyOf` or several types, `render` is called for the node itself (its
+`schema` has the `oneOf`/`anyOf`, or a list of types) and, if it returns `undefined`, again for
+whichever alternative is chosen, so you can draw one alternative and keep the selector. The hook is
+called again whenever the node is redrawn (after a programmatic edit, or when a conditional schema
+changes the fields), so keep any state in the document rather than in your element. If the hook
+throws, or returns something that isn't an element, the error is logged to the console and the
+normal rendering is used. The demonstration page has a "Custom renderers" switch that shows a
+star rating and a colour picker.
 
 ### Tests
 
 ```
 cd javascript
 npm install
-npm test
+npm test                  # fast, in jsdom
+npm run test:browser      # in a real Chrome: the stylesheet's light/dark behaviour
 ```
+
+`npm run test:browser` needs Chrome (it uses `puppeteer-core`). It looks for an installed Chrome, or
+set `CHROME_PATH` (and `CHROME_ARGS`, `CHROME_HEADLESS=shell` for a headless-shell binary). Without a
+browser the tests are skipped, unless `REQUIRE_BROWSER` is set, as it is in CI. They check, in the real
+browser, that the editor follows `prefers-color-scheme`, that `data-theme` and the custom properties
+override it, and that text, error and focus colours have enough contrast in every combination.
 
 ## Python
 
@@ -288,7 +360,7 @@ there are many) and a live form in the metaschema demo.
 
 [GitHub Actions](.github/workflows/ci.yml) runs on every push to `main` and every pull request:
 
-* the JavaScript tests on Node 22, 24 and 26;
+* the JavaScript tests on Node 22, 24 and 26, and the browser tests in Chrome;
 * the Python tests on Python 3.9 to 3.14 on Linux, and on 3.12 on macOS and Windows (the
   pseudo-terminal tests are skipped on Windows);
 * a packaging check: build the sdist and wheel, run `twine check`, install the wheel and run the

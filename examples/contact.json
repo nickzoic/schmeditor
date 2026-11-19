@@ -43,7 +43,8 @@
     },
     "scratch": {
       "note": "anything goes",
-      "count": 3
+      "count": 3,
+      "accent": "#3b82f6"
     }
   },
   "billing": {

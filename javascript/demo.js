@@ -168,7 +168,7 @@ const initial = {
   strings: { code: 'ABC123', email: 'ada@example.com' },
   numbers: { quantity: 3, rating: 4.5 },
   arrays: { location: [-37.8136, 144.9631], legacy: ['x', 2, true], milestones: [50, 100] },
-  objects: { labels: { team: 'core' }, limits: { max_items: 10, flag_beta: true }, scratch: { note: 'anything goes', count: 3 } },
+  objects: { labels: { team: 'core' }, limits: { max_items: 10, flag_beta: true }, scratch: { note: 'anything goes', count: 3, accent: '#3b82f6' } },
   billing: { card: '4242', cardExpiry: '01/30' },
   shipping: { method: 'pickup', store: 'Central' },
   composition: {
@@ -377,14 +377,76 @@ function run(label, fn) {
   updatePreview();
 }
 
-function mount(key) {
-  current = examples[key];
+// ---- The render hook: draw some nodes ourselves. Called for every node; return undefined for the normal rendering.
+// info = {schema, value, path, set, editor}. set(v) edits the node like a user would and returns {ok, errors}.
+function demoRender(info) {
+  const { schema, value } = info;
+  // By schema: a number from 0 to 5 becomes a row of stars (click the left half of a star for a half).
+  if (schema.type === 'number' && schema.minimum === 0 && schema.maximum === 5) return starRating(info);
+  // By value: a string like "#3b82f6" becomes a colour picker, whatever its schema says.
+  if (typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value)) return colourPicker(info);
+  return undefined;
+}
+
+function starRating(info) {
+  const wrap = document.createElement('span');
+  wrap.className = 'stars';
+  const stars = [];
+  const readout = document.createElement('span');
+  readout.className = 'stars-readout';
+  const problem = document.createElement('span');
+  problem.className = 'stars-problem';
+  const draw = v => {
+    stars.forEach((star, i) => { star.className = v >= i + 1 ? 'full' : v >= i + 0.5 ? 'half' : ''; });
+    readout.textContent = v + ' / 5';
+  };
+  const choose = v => {
+    const result = info.set(v);
+    problem.textContent = result.ok ? '' : result.errors.join('; ');
+    if (result.ok) draw(v);
+  };
+  for (let i = 1; i <= 5; i++) {
+    const star = document.createElement('button');
+    star.type = 'button';
+    star.textContent = '★';
+    star.setAttribute('aria-label', i + (i === 1 ? ' star' : ' stars'));
+    star.addEventListener('click', e => {
+      const half = e.offsetX > 0 && e.offsetX < star.offsetWidth / 2;
+      choose(half ? i - 0.5 : i);
+    });
+    stars.push(star);
+    wrap.append(star);
+  }
+  const clear = document.createElement('button');
+  clear.type = 'button';
+  clear.className = 'stars-clear';
+  clear.textContent = 'clear';
+  clear.addEventListener('click', () => choose(0));
+  wrap.append(readout, clear, problem);
+  draw(info.value);
+  return wrap;
+}
+
+function colourPicker(info) {
+  const wrap = document.createElement('span');
+  wrap.className = 'colour';
+  const input = document.createElement('input');
+  input.type = 'color';
+  input.value = info.value;
+  input.setAttribute('aria-label', 'Colour');
+  const text = document.createElement('code');
+  text.textContent = info.value;
+  input.addEventListener('input', () => {
+    const result = info.set(input.value);
+    text.textContent = result.ok ? input.value : result.errors.join('; ');
+  });
+  wrap.append(input, text);
+  return wrap;
+}
+
+function createEditor(doc) {
   if (editor) editor.destroy();
-  previewEditor = null;
-  $('preview-editor').textContent = '';
-  $('pout').textContent = '';
-  $('pmsg').textContent = '';
-  editor = new SchemaEditor($('editor'), current.schema, current.initial);
+  editor = new SchemaEditor($('editor'), current.schema, doc, { render: $('custom-render').checked ? demoRender : undefined });
   editor.onChange((doc, info) => {
     // info.patch is a JSON Patch (RFC 6902) describing the change; info.path and info.value say what changed
     const patch = JSON.stringify(info.patch);
@@ -392,6 +454,15 @@ function mount(key) {
     render();
     updatePreview();
   });
+}
+
+function mount(key) {
+  current = examples[key];
+  previewEditor = null;
+  $('preview-editor').textContent = '';
+  $('pout').textContent = '';
+  $('pmsg').textContent = '';
+  createEditor(current.initial);
 
   for (const k of Object.keys(examples)) {
     $('ex-' + k).setAttribute('aria-selected', String(k === key));
@@ -417,6 +488,11 @@ function mount(key) {
 }
 
 document.querySelectorAll('.tabs button').forEach(b => { b.onclick = () => { view = b.dataset.view; render(); }; });
+$('custom-render').onchange = () => {
+  createEditor(editor.getDocument());          // same document, drawn with or without the hook
+  say($('custom-render').checked ? 'Custom renderers on.' : 'Custom renderers off.');
+  render();
+};
 $('ex-contact').onclick = () => mount('contact');
 $('ex-meta').onclick = () => mount('meta');
 mount('contact');

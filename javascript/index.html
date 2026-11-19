@@ -36,6 +36,19 @@
   #status { min-height: 1.6em; margin-bottom: 14px; color: var(--muted); font-size: .92em; }
   #status.err { color: #d1342f; }
   .editor-box { border: 1px solid var(--line); border-radius: 8px; padding: 18px; }
+  /* This page manages its own light/dark colours, so the editor takes them rather than painting its own. */
+  .editor-box .se-root, .formbox .se-root { --se-bg: transparent; --se-fg: inherit; --se-padding: 0; }
+  .toggle { display: block; margin-bottom: 10px; cursor: pointer; }
+  .toggle .hint { color: var(--muted); font-size: .9em; }
+  .stars { display: inline-flex; align-items: center; gap: 2px; flex-wrap: wrap; }
+  .stars button { border: 0; background: none; padding: 0 1px; font-size: 1.5rem; line-height: 1; cursor: pointer; color: var(--line); }
+  .stars button.full { color: #e0a100; }
+  .stars button.half { background: linear-gradient(90deg, #e0a100 50%, var(--line) 50%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .stars-readout { margin-left: 8px; font-variant-numeric: tabular-nums; }
+  .stars .stars-clear { font-size: .85rem; color: var(--muted); margin-left: 6px; text-decoration: underline; }
+  .stars-problem { color: #d1342f; margin-left: 8px; font-size: .9em; }
+  .colour { display: inline-flex; align-items: center; gap: 10px; }
+  .colour input[type="color"] { width: 48px; height: 32px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; cursor: pointer; }
   .side { position: sticky; top: 16px; }
   .tabs { display: flex; gap: 6px; margin-bottom: 8px; }
   .tabs button[aria-selected="true"] { background: var(--panel); border-color: var(--accent); }
@@ -88,6 +101,10 @@
   <div class="grid">
     <section aria-label="Editor">
       <div class="toolbar" id="toolbar"></div>
+      <label class="toggle">
+        <input type="checkbox" id="custom-render">
+        Custom renderers <span class="hint">(<code>render</code> hook: stars for numbers from 0 to 5, a colour picker for “#rrggbb” strings)</span>
+      </label>
       <div id="status" role="status" aria-live="polite">Ready.</div>
       <div class="editor-box"><div id="editor"></div></div>
     </section>
