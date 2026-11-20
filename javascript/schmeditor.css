@@ -149,20 +149,19 @@ textarea.se-input {
 .se-select option {
   background: Canvas;
   color: CanvasText;
-  /* Options inherit from their select, which is italic monospace while null, true or false is
-     selected, so say what an ordinary option looks like. */
+  /* Options inherit their font from the select, which is fixed-width while a non-string value
+     is selected, so say what an ordinary option looks like. */
   font-family: var(--se-font);
-  font-style: normal;
 }
 
-/* null, true, false and numbers in an enum: not strings, so they look different. (Browsers let
-   options be styled only a little, and mobile pickers not at all; the select itself takes the
-   same style while one of them is selected.) */
+/* A value in an enum that isn't a string (null, true, false, a number, an object or an array) is
+   drawn in a distinct colour and a fixed-width font. Browsers let options be styled only a
+   little, and mobile pickers not at all; the select itself takes the same style while such a
+   value is selected. */
 .se-select option.se-literal,
 .se-select.se-literal {
   color: var(--se-literal);
   font-family: var(--se-mono);
-  font-style: italic;
 }
 
 .se-variant-bar {

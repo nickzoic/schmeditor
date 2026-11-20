@@ -141,7 +141,7 @@ const schema = {
         },
         externalId: { type: ['string', 'integer'], description: 'A type array: string or integer.' },
         priority: { enum: [1, 2, 3, 'urgent', null], description: 'enum with mixed types.' },
-        consent: { enum: [true, false, null, 'true'], description: 'enum with true, false and null, which are styled so they can’t be taken for strings. The string “true” is shown in quotes.' },
+        consent: { enum: [true, false, null, 'true'], description: 'enum with true, false and null, which are shown in a distinct colour and a fixed-width font, unlike the string “true”.' },
         referrals: { type: 'array', items: { $ref: '#' }, maxItems: 3, description: '$ref “#”: each referral is a whole Contact.' },
         relatives: { type: 'array', items: { $ref: '#/$defs/person' }, description: 'A recursive $ref: people with relatives.' }
       }

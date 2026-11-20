@@ -49,7 +49,7 @@ const contrast = (a, b) => { const [hi, lo] = [luminance(a), luminance(b)].sort(
 const SCHEMA = { title: 'Contact', type: 'object', required: ['name'], properties: {
   name: { type: 'string', minLength: 2, description: 'At least two characters.' },
   role: { enum: ['customer', 'partner'] },
-  flag: { enum: [null, true, false, 'true', 2, 'x'] },
+  flag: { enum: [null, true, false, 'true', 2, { a: 1 }, [1, 2], 'x'] },
 } };
 
 // Render an editor in a fresh page, with the browser set to `scheme`, and measure it.
@@ -75,13 +75,9 @@ async function measure({ scheme, attrs = '', style = '', bodyStyle = '' }) {
         error: css(root.querySelector('.se-error')).color, muted: css(root.querySelector('.se-desc')).color,
         focusVar: css(root).getPropertyValue('--se-focus'), selectBg: css(root.querySelector('select')).backgroundColor,
         literalVar: css(root).getPropertyValue('--se-literal'),
-        flagSelect: (e => ({ color: css(e).color, fontStyle: css(e).fontStyle }))(root.querySelector('[data-ptr="/flag"] select')),
-        literalOption: (e => ({ color: css(e).color, fontStyle: css(e).fontStyle, fontFamily: css(e).fontFamily }))(
-          root.querySelector('[data-ptr="/flag"] option.se-literal')),
-        stringOption: (e => ({ color: css(e).color, fontStyle: css(e).fontStyle, fontFamily: css(e).fontFamily }))(
-          [...root.querySelectorAll('[data-ptr="/flag"] option')].find(o => o.textContent === 'x')),
-        numberOption: (e => ({ cls: e.className, color: css(e).color, fontStyle: css(e).fontStyle }))(
-          [...root.querySelectorAll('[data-ptr="/flag"] option')].find(o => o.textContent === '2')),
+        flagSelect: (e => ({ color: css(e).color, fontFamily: css(e).fontFamily }))(root.querySelector('[data-ptr="/flag"] select')),
+        flagOptions: [...root.querySelectorAll('[data-ptr="/flag"] option')].map(e => (
+          { text: e.textContent, cls: e.className, color: css(e).color, fontFamily: css(e).fontFamily, fontStyle: css(e).fontStyle })),
       };
     });
   } finally {
@@ -147,20 +143,33 @@ for (const [name, opts] of [['light', { scheme: 'light' }], ['dark', { scheme: '
 }
 
 for (const scheme of ['light', 'dark']) {
-  test(`enum options for null, true, false and numbers look different from strings: ${scheme}`, async t => {
+  test(`enum options that are not strings are drawn in a distinct colour and a fixed-width font: ${scheme}`, async t => {
     if (needBrowser(t)) return;
     const m = await measure({ scheme });
     const colour = c => parseColour(c).slice(0, 3).map(x => x.toFixed(2)).join();
-    assert.equal(m.literalOption.fontStyle, 'italic');
-    assert.equal(m.stringOption.fontStyle, 'normal');
-    assert.notEqual(m.literalOption.fontFamily, m.stringOption.fontFamily);                  // monospace against the page font
-    assert.match(m.literalOption.fontFamily, /monospace|Menlo|Consolas/);
-    assert.notEqual(colour(m.literalOption.color), colour(m.stringOption.color));
-    assert.equal(colour(m.literalOption.color), colour(m.literalVar));                       // and uses --se-literal
-    assert.equal(m.numberOption.cls, 'se-literal', 'numbers are marked too');
-    assert.equal(m.numberOption.fontStyle, 'italic');
-    assert.equal(colour(m.numberOption.color), colour(m.literalVar));
-    assert.equal(m.flagSelect.fontStyle, 'italic', 'the closed select shows null in the same style');
+    const mono = /monospace|Menlo|Consolas/;
+    const byText = text => m.flagOptions.find(o => o.text === text);
+    // null, true, false, a number, an object and an array: all marked, all alike
+    for (const text of ['null', 'true', 'false', '2', '{"a":1}', '[1,2]']) {
+      const o = m.flagOptions.find(x => x.text === text && x.cls === 'se-literal');
+      assert.ok(o, `option ${text} is marked`);
+      assert.match(o.fontFamily, mono, `${text} is fixed-width`);
+      assert.equal(colour(o.color), colour(m.literalVar), `${text} uses --se-literal`);
+      assert.equal(o.fontStyle, 'normal', `${text} is not italic`);
+    }
+    // strings are untouched, including one that reads "true", even though the select itself is fixed-width
+    for (const text of ['x']) {
+      const o = byText(text);
+      assert.equal(o.cls, '');
+      assert.doesNotMatch(o.fontFamily, mono, 'an ordinary option is not fixed-width');
+      assert.notEqual(colour(o.color), colour(m.literalVar));
+    }
+    const stringTrue = m.flagOptions.find(o => o.text === 'true' && o.cls === '');
+    assert.ok(stringTrue, 'the string "true" is shown as it is (no quotes) and is not marked');
+    assert.doesNotMatch(stringTrue.fontFamily, mono);
+    assert.ok(!m.flagOptions.some(o => o.text.includes('"true"')), 'strings are never put in quotes');
+    // the closed select (null is selected) takes the same colour and font
+    assert.match(m.flagSelect.fontFamily, mono);
     assert.equal(colour(m.flagSelect.color), colour(m.literalVar));
   });
 }

@@ -489,51 +489,40 @@ test('render hook: a hook that throws, or returns a non-element, falls back to t
   assert.match(logged[1], /must return an element/);
 });
 
-test('enum: null, true, false and numbers are marked as not being strings', () => {
-  const { el, editor } = make({ enum: [null, true, false, 'true', 'null', 'x', 1] }, null);
+test('enum: every value that is not a string is marked, and strings are never changed', () => {
+  const enumValues = [null, true, false, 1, 2.5, { a: 1, b: [2, 3] }, [1, 2], 'true', 'null', '1', '{"a":1}', 'x', ''];
+  const { el, editor } = make({ enum: enumValues }, null);
   const options = [...el.querySelectorAll('option')];
   assert.deepEqual(options.map(o => [o.textContent, o.classList.contains('se-literal')]), [
-    ['null', true], ['true', true], ['false', true],
-    ['"true"', false], ['"null"', false],                         // strings that would look like a literal are quoted
-    ['x', false], ['1', true],                                     // numbers are marked too
+    ['null', true], ['true', true], ['false', true], ['1', true], ['2.5', true],
+    ['{"a":1,"b":[2,3]}', true], ['[1,2]', true],                 // objects and arrays too
+    ['true', false], ['null', false], ['1', false], ['{"a":1}', false], ['x', false], ['', false],   // strings: as they are, no quotes
   ]);
   const select = el.querySelector('select');
-  assert.ok(select.classList.contains('se-literal'), 'the closed select is styled while a literal is selected');
-  select.value = '5';                                              // "x"
-  fire(select, 'change');
-  assert.equal(editor.get(''), 'x');
-  assert.ok(!select.classList.contains('se-literal'));
-  select.value = '2';                                              // false
-  fire(select, 'change');
-  assert.equal(editor.get(''), false);
-  assert.ok(select.classList.contains('se-literal'));
-  select.value = '3';                                              // the string "true", which is not the boolean
-  fire(select, 'change');
-  assert.equal(editor.get(''), 'true');
-  assert.ok(!select.classList.contains('se-literal'));
+  const marked = () => select.classList.contains('se-literal');
+  assert.ok(marked(), 'the closed select is styled while a non-string value is selected');
+  const choose = i => { select.value = String(i); fire(select, 'change'); };
+  choose(11);                                                      // "x"
+  assert.strictEqual(editor.get(''), 'x');
+  assert.ok(!marked());
+  choose(2);                                                       // false
+  assert.strictEqual(editor.get(''), false);
+  assert.ok(marked());
+  choose(7);                                                       // the string "true": not the boolean, and not marked
+  assert.strictEqual(editor.get(''), 'true');
+  assert.ok(!marked());
+  choose(5);                                                       // the object
+  assert.deepEqual(editor.get(''), { a: 1, b: [2, 3] });
+  assert.ok(marked());
+  choose(6);                                                       // the array
+  assert.deepEqual(editor.get(''), [1, 2]);
+  assert.ok(marked());
+  choose(3);                                                       // the number 1, not the string "1"
+  assert.strictEqual(editor.get(''), 1);
+  assert.ok(marked());
 });
 
-test('enum: numbers are marked, and strings that look like them are quoted', () => {
-  const { el, editor } = make({ enum: [1, '1', 2.5, '2.5', -3, '01', 'x'] }, 2.5);
-  const options = [...el.querySelectorAll('option')];
-  assert.deepEqual(options.map(o => [o.textContent, o.classList.contains('se-literal')]), [
-    ['1', true], ['"1"', false], ['2.5', true], ['"2.5"', false], ['-3', true],
-    ['01', false],                                                // "01" can't be mistaken for 1, so it isn't quoted
-    ['x', false],
-  ]);
-  const select = el.querySelector('select');
-  assert.ok(select.classList.contains('se-literal'));
-  select.value = '1';                                              // the string "1", which is not the number
-  fire(select, 'change');
-  assert.strictEqual(editor.get(''), '1');
-  assert.ok(!select.classList.contains('se-literal'));
-  select.value = '4';                                              // -3
-  fire(select, 'change');
-  assert.strictEqual(editor.get(''), -3);
-  assert.ok(select.classList.contains('se-literal'));
-});
-
-test('enum: strings are left as they are when nothing could be mistaken for them', () => {
+test('enum: a list of only strings is left completely plain', () => {
   const { el } = make({ enum: ['true', 'x'] }, 'true');
   assert.deepEqual([...el.querySelectorAll('option')].map(o => [o.textContent, o.classList.contains('se-literal')]),
     [['true', false], ['x', false]]);
