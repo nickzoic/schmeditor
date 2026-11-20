@@ -49,7 +49,7 @@ const contrast = (a, b) => { const [hi, lo] = [luminance(a), luminance(b)].sort(
 const SCHEMA = { title: 'Contact', type: 'object', required: ['name'], properties: {
   name: { type: 'string', minLength: 2, description: 'At least two characters.' },
   role: { enum: ['customer', 'partner'] },
-  flag: { enum: [null, true, false, 'true', 'x'] },
+  flag: { enum: [null, true, false, 'true', 2, 'x'] },
 } };
 
 // Render an editor in a fresh page, with the browser set to `scheme`, and measure it.
@@ -80,6 +80,8 @@ async function measure({ scheme, attrs = '', style = '', bodyStyle = '' }) {
           root.querySelector('[data-ptr="/flag"] option.se-literal')),
         stringOption: (e => ({ color: css(e).color, fontStyle: css(e).fontStyle, fontFamily: css(e).fontFamily }))(
           [...root.querySelectorAll('[data-ptr="/flag"] option')].find(o => o.textContent === 'x')),
+        numberOption: (e => ({ cls: e.className, color: css(e).color, fontStyle: css(e).fontStyle }))(
+          [...root.querySelectorAll('[data-ptr="/flag"] option')].find(o => o.textContent === '2')),
       };
     });
   } finally {
@@ -145,7 +147,7 @@ for (const [name, opts] of [['light', { scheme: 'light' }], ['dark', { scheme: '
 }
 
 for (const scheme of ['light', 'dark']) {
-  test(`enum options for null, true and false look different from strings: ${scheme}`, async t => {
+  test(`enum options for null, true, false and numbers look different from strings: ${scheme}`, async t => {
     if (needBrowser(t)) return;
     const m = await measure({ scheme });
     const colour = c => parseColour(c).slice(0, 3).map(x => x.toFixed(2)).join();
@@ -155,6 +157,9 @@ for (const scheme of ['light', 'dark']) {
     assert.match(m.literalOption.fontFamily, /monospace|Menlo|Consolas/);
     assert.notEqual(colour(m.literalOption.color), colour(m.stringOption.color));
     assert.equal(colour(m.literalOption.color), colour(m.literalVar));                       // and uses --se-literal
+    assert.equal(m.numberOption.cls, 'se-literal', 'numbers are marked too');
+    assert.equal(m.numberOption.fontStyle, 'italic');
+    assert.equal(colour(m.numberOption.color), colour(m.literalVar));
     assert.equal(m.flagSelect.fontStyle, 'italic', 'the closed select shows null in the same style');
     assert.equal(colour(m.flagSelect.color), colour(m.literalVar));
   });

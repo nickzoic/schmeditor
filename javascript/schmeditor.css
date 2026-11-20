@@ -155,9 +155,9 @@ textarea.se-input {
   font-style: normal;
 }
 
-/* null, true and false in an enum: not strings, so they look different. (Browsers let options
-   be styled only a little, and mobile pickers not at all; the select itself takes the same
-   style while one of them is selected.) */
+/* null, true, false and numbers in an enum: not strings, so they look different. (Browsers let
+   options be styled only a little, and mobile pickers not at all; the select itself takes the
+   same style while one of them is selected.) */
 .se-select option.se-literal,
 .se-select.se-literal {
   color: var(--se-literal);

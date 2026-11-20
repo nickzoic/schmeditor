@@ -1119,9 +1119,9 @@
     _renderEnum(ctx) {
       const { s, path, body } = ctx;
       const value = getAt(this._doc, path);
-      // null, true and false are not strings: they get a class (styled in the stylesheet), and a
-      // string that would look just like one of them is shown in quotes, in case styling is ignored.
-      const isLiteral = v => v === null || v === true || v === false;
+      // null, true, false and numbers are not strings: they get a class (styled in the stylesheet),
+      // and a string that would look just like one of them is shown in quotes, in case styling is ignored.
+      const isLiteral = v => v === null || typeof v === 'boolean' || typeof v === 'number';
       const literals = new Set(s.enum.filter(isLiteral).map(v => JSON.stringify(v)));
       const label = v => (typeof v === 'string' ? (literals.has(v) ? JSON.stringify(v) : v) : JSON.stringify(v));
       const sel = h('select', { class: 'se-select', 'data-fk': toPtr(path) });

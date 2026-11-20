@@ -489,13 +489,13 @@ test('render hook: a hook that throws, or returns a non-element, falls back to t
   assert.match(logged[1], /must return an element/);
 });
 
-test('enum: null, true and false are marked as not being strings', () => {
+test('enum: null, true, false and numbers are marked as not being strings', () => {
   const { el, editor } = make({ enum: [null, true, false, 'true', 'null', 'x', 1] }, null);
   const options = [...el.querySelectorAll('option')];
   assert.deepEqual(options.map(o => [o.textContent, o.classList.contains('se-literal')]), [
     ['null', true], ['true', true], ['false', true],
     ['"true"', false], ['"null"', false],                         // strings that would look like a literal are quoted
-    ['x', false], ['1', false],
+    ['x', false], ['1', true],                                     // numbers are marked too
   ]);
   const select = el.querySelector('select');
   assert.ok(select.classList.contains('se-literal'), 'the closed select is styled while a literal is selected');
@@ -511,6 +511,26 @@ test('enum: null, true and false are marked as not being strings', () => {
   fire(select, 'change');
   assert.equal(editor.get(''), 'true');
   assert.ok(!select.classList.contains('se-literal'));
+});
+
+test('enum: numbers are marked, and strings that look like them are quoted', () => {
+  const { el, editor } = make({ enum: [1, '1', 2.5, '2.5', -3, '01', 'x'] }, 2.5);
+  const options = [...el.querySelectorAll('option')];
+  assert.deepEqual(options.map(o => [o.textContent, o.classList.contains('se-literal')]), [
+    ['1', true], ['"1"', false], ['2.5', true], ['"2.5"', false], ['-3', true],
+    ['01', false],                                                // "01" can't be mistaken for 1, so it isn't quoted
+    ['x', false],
+  ]);
+  const select = el.querySelector('select');
+  assert.ok(select.classList.contains('se-literal'));
+  select.value = '1';                                              // the string "1", which is not the number
+  fire(select, 'change');
+  assert.strictEqual(editor.get(''), '1');
+  assert.ok(!select.classList.contains('se-literal'));
+  select.value = '4';                                              // -3
+  fire(select, 'change');
+  assert.strictEqual(editor.get(''), -3);
+  assert.ok(select.classList.contains('se-literal'));
 });
 
 test('enum: strings are left as they are when nothing could be mistaken for them', () => {
