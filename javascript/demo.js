@@ -56,6 +56,38 @@ const schema = {
           items: [{ type: 'string' }, { type: 'integer' }], additionalItems: { type: 'boolean' },
           description: 'Tuple items plus additionalItems: string, integer, then any number of booleans.'
         },
+        lineItems: {
+          title: 'Line items', type: 'array',
+          description: 'An array of objects with fixed simple properties. There is no “tabular” keyword, so it is a table when there is room for the columns, and rows when there isn’t.',
+          items: {
+            type: 'object', additionalProperties: false, required: ['sku', 'qty'],
+            properties: {
+              sku: { title: 'SKU', type: 'string', minLength: 1, default: 'NEW-1' },
+              qty: { title: 'Qty', type: 'integer', minimum: 1, default: 1 },
+              price: { title: 'Price', type: 'number', minimum: 0, default: 0 },
+              gift: { title: 'Gift?', type: 'boolean' }
+            }
+          }
+        },
+        phones: {
+          title: 'Phone numbers', type: 'array', tabular: true,
+          description: '“tabular”: true, so it is always a table, however narrow the page.',
+          items: {
+            type: 'object', additionalProperties: false, required: ['kind', 'number'],
+            properties: {
+              kind: { title: 'Kind', enum: ['mobile', 'home', 'work'] },
+              number: { title: 'Number', type: 'string', pattern: '^[0-9 +]+$', default: '0400 000 000' }
+            }
+          }
+        },
+        team: {
+          title: 'Team', type: 'array', tabular: false,
+          description: '“tabular”: false, so it is never a table, although it could be.',
+          items: {
+            type: 'object', additionalProperties: false, required: ['name'],
+            properties: { name: { type: 'string', minLength: 1, default: 'Someone' }, role: { type: 'string' } }
+          }
+        },
         milestones: {
           title: 'Milestones', type: 'array', items: { type: 'integer' }, default: [100],
           contains: { minimum: 100 }, minContains: 1, maxContains: 2,
@@ -168,7 +200,12 @@ const initial = {
   address: { postcode: '3000' },
   strings: { code: 'ABC123', email: 'ada@example.com' },
   numbers: { quantity: 3, rating: 4.5 },
-  arrays: { location: [-37.8136, 144.9631], legacy: ['x', 2, true], milestones: [50, 100] },
+  arrays: {
+    location: [-37.8136, 144.9631], legacy: ['x', 2, true], milestones: [50, 100],
+    lineItems: [{ sku: 'A-100', qty: 2, price: 9.5, gift: false }, { sku: 'B-200', qty: 1 }],
+    phones: [{ kind: 'mobile', number: '0400 111 222' }, { kind: 'work', number: '03 5555 0000' }],
+    team: [{ name: 'Ada', role: 'lead' }, { name: 'Charles', role: 'engineer' }]
+  },
   objects: { labels: { team: 'core' }, limits: { max_items: 10, flag_beta: true }, scratch: { note: 'anything goes', count: 3, accent: '#3b82f6' } },
   billing: { card: '4242', cardExpiry: '01/30' },
   shipping: { method: 'pickup', store: 'Central' },
@@ -258,7 +295,11 @@ const metaschema = (() => {
     uniqueItems: { type: 'boolean' },
     contains: S,
     minContains: count,
-    maxContains: count
+    maxContains: count,
+    tabular: {
+      type: 'boolean',
+      description: 'For an array of objects with fixed simple properties: true always shows a table, false never does. Unset: a table when there is room.'
+    }
   };
   const allKw = { ...stringKw, ...numberKw, ...objectKw, ...arrayKw };
 

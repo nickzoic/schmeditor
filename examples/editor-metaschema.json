@@ -772,6 +772,10 @@
               "type": "integer",
               "minimum": 0,
               "default": 0
+            },
+            "tabular": {
+              "type": "boolean",
+              "description": "For an array of objects with fixed simple properties: true always shows a table, false never does. Unset: a table when there is room."
             }
           },
           "additionalProperties": false
@@ -1048,6 +1052,10 @@
               "type": "integer",
               "minimum": 0,
               "default": 0
+            },
+            "tabular": {
+              "type": "boolean",
+              "description": "For an array of objects with fixed simple properties: true always shows a table, false never does. Unset: a table when there is room."
             }
           },
           "additionalProperties": false
@@ -1305,6 +1313,10 @@
               "type": "integer",
               "minimum": 0,
               "default": 0
+            },
+            "tabular": {
+              "type": "boolean",
+              "description": "For an array of objects with fixed simple properties: true always shows a table, false never does. Unset: a table when there is room."
             }
           },
           "additionalProperties": false

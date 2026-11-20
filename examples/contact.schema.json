@@ -199,6 +199,96 @@
           },
           "description": "Tuple items plus additionalItems: string, integer, then any number of booleans."
         },
+        "lineItems": {
+          "title": "Line items",
+          "type": "array",
+          "description": "An array of objects with fixed simple properties. There is no “tabular” keyword, so it is a table when there is room for the columns, and rows when there isn’t.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "sku",
+              "qty"
+            ],
+            "properties": {
+              "sku": {
+                "title": "SKU",
+                "type": "string",
+                "minLength": 1,
+                "default": "NEW-1"
+              },
+              "qty": {
+                "title": "Qty",
+                "type": "integer",
+                "minimum": 1,
+                "default": 1
+              },
+              "price": {
+                "title": "Price",
+                "type": "number",
+                "minimum": 0,
+                "default": 0
+              },
+              "gift": {
+                "title": "Gift?",
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "phones": {
+          "title": "Phone numbers",
+          "type": "array",
+          "tabular": true,
+          "description": "“tabular”: true, so it is always a table, however narrow the page.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "number"
+            ],
+            "properties": {
+              "kind": {
+                "title": "Kind",
+                "enum": [
+                  "mobile",
+                  "home",
+                  "work"
+                ]
+              },
+              "number": {
+                "title": "Number",
+                "type": "string",
+                "pattern": "^[0-9 +]+$",
+                "default": "0400 000 000"
+              }
+            }
+          }
+        },
+        "team": {
+          "title": "Team",
+          "type": "array",
+          "tabular": false,
+          "description": "“tabular”: false, so it is never a table, although it could be.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "default": "Someone"
+              },
+              "role": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "milestones": {
           "title": "Milestones",
           "type": "array",

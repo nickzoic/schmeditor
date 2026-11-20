@@ -31,6 +31,38 @@
     "milestones": [
       50,
       100
+    ],
+    "lineItems": [
+      {
+        "sku": "A-100",
+        "qty": 2,
+        "price": 9.5,
+        "gift": false
+      },
+      {
+        "sku": "B-200",
+        "qty": 1
+      }
+    ],
+    "phones": [
+      {
+        "kind": "mobile",
+        "number": "0400 111 222"
+      },
+      {
+        "kind": "work",
+        "number": "03 5555 0000"
+      }
+    ],
+    "team": [
+      {
+        "name": "Ada",
+        "role": "lead"
+      },
+      {
+        "name": "Charles",
+        "role": "engineer"
+      }
     ]
   },
   "objects": {

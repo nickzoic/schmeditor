@@ -33,6 +33,8 @@ A document that starts out valid therefore stays valid, however you edit it.
 * **Works on documents that start invalid.** Their errors are shown, and edits may only reduce them.
 * Exposes a **programmatic API** to read and change the document, and a **change callback** that
   receives each change as a [JSON Patch](https://datatracker.ietf.org/doc/html/rfc6902) (RFC 6902).
+* **Shows arrays of simple objects as tables**, a row per object and a column per property, when there is
+  room (browser component).
 * **Lets you draw any node yourself.** The browser component has a `render` hook that can replace how
   a node is drawn, based on its schema and value, and fall back to the normal rendering otherwise.
 * The browser component **follows the browser's light/dark setting**.
@@ -143,6 +145,56 @@ are checked like UI edits: a change that would make the document less valid thro
 Options: `onChange`; `notifyOnProgrammatic` (default `false`: also call the callback for
 `set`/`remove`/`insert`/`push`/`setDocument`, with `source: 'api'`); `validateFormats` (default
 `true`: treat `format` as an assertion); `render` (a hook to draw nodes yourself, below).
+
+### Arrays as tables
+
+An array whose items are objects with a fixed set of simple properties is shown as a table: a row per
+object and a column per property, with the property's `title` (or name) as the heading and a `*` on
+the required ones, and the usual buttons to move and remove a row. Each cell is the normal editor
+for that property, so checking, change notifications (with their patches) and the `render` hook work
+just as they do elsewhere. An optional property that a row lacks shows a `+` in its cell, and a
+filled optional cell has a small ✕ to clear it.
+
+```json
+{
+  "type": "array",
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["sku", "qty"],
+    "properties": {
+      "sku": { "title": "SKU", "type": "string" },
+      "qty": { "title": "Qty", "type": "integer", "minimum": 1 },
+      "gift": { "type": "boolean" }
+    }
+  }
+}
+```
+
+An array qualifies when `items` is an object schema (or a `$ref` to one) with `properties` and
+`additionalProperties: false`, no `patternProperties`, none of `oneOf`, `anyOf`, `if`,
+`dependentSchemas` or `dependencies`, and every property is a single string, number, integer, boolean
+or null, or an `enum` or `const` of such values. Tuples don't qualify.
+
+The array's **`tabular`** keyword (an editor keyword, not part of JSON Schema; other tools ignore it)
+chooses the layout:
+
+| `tabular` | Layout |
+| --- | --- |
+| `true` | always a table, however narrow the page. If it doesn't fit it scrolls sideways inside its own box rather than squashing the controls. |
+| `false` | never a table |
+| not set | a table when there is room for the columns, rows otherwise |
+
+If you set `"tabular": true` on an array that doesn't qualify, it is drawn the normal way and a
+warning says why in the console. When `tabular` isn't set, the width that counts is that of the
+array's own box (so a nested array is judged by the room it has), and the layout switches as it
+changes, for example when the window is resized, keeping the values and the focus. A table is
+chosen when the box is at least about 150px (for the row number and buttons) plus 140px for each string
+column, 120px for each enum, 90px for each number or const, 80px for each boolean and 60px for each null.
+
+In a table the `render` hook is called for the array and for each cell, but not for the rows. The
+metaschema in `examples/` accepts `tabular`, and the demonstration page has one of each: Line items
+(not set), Phone numbers (`true`) and Team (`false`).
 
 ### Custom rendering
 
