@@ -529,6 +529,238 @@ test('enum: a list of only strings is left completely plain', () => {
   assert.ok(!el.querySelector('select').classList.contains('se-literal'));
 });
 
+// ---- arrays of objects shown as tables
+
+const ROW = {
+  type: 'object', additionalProperties: false, required: ['sku', 'qty'],
+  properties: {
+    sku: { title: 'SKU', type: 'string', minLength: 1 },
+    qty: { type: 'integer', minimum: 1 },
+    price: { type: 'number' },
+    gift: { type: 'boolean' },
+  },
+};
+const itemsSchema = (extra = {}, row = ROW) => ({ type: 'array', items: row, ...extra });
+const lines = () => [{ sku: 'A', qty: 2, price: 9.5, gift: false }, { sku: 'B', qty: 1 }];
+const tableOf = el => el.querySelector('table.se-table');
+const bodyRows = el => [...el.querySelectorAll('tbody > tr.se-row')];
+
+// An editor in the document (so that focus and observers work) in a container `width` px wide.
+function attached(schema, doc, width, options) {
+  const el = document.createElement('div');
+  el.getBoundingClientRect = () => ({ width, height: 0, top: 0, left: 0, right: width, bottom: 0 });
+  document.body.append(el);
+  return { el, editor: new SchemaEditor(el, schema, doc, options), remove: () => el.remove() };
+}
+
+// A stand-in for the browser's ResizeObserver that tests can drive.
+function fakeResizeObservers() {
+  const all = [];
+  global.ResizeObserver = class {
+    constructor(callback) { this.callback = callback; this.live = true; all.push(this); }
+    observe(target) { this.target = target; }
+    disconnect() { this.live = false; }
+  };
+  return {
+    all,
+    live: () => all.filter(o => o.live),
+    resize: width => { for (const o of all.filter(o => o.live)) o.callback([{ contentRect: { width } }]); },
+    restore: () => { delete global.ResizeObserver; },
+  };
+}
+
+test('tabular: true shows a table, a row per object and a column per property', () => {
+  const { el } = make(itemsSchema({ tabular: true }), lines());
+  assert.ok(tableOf(el));
+  assert.equal(el.querySelector('.se-item'), null, 'no list rows');
+  assert.deepEqual([...el.querySelectorAll('thead th')].map(th => th.textContent.trim()),
+    ['#', 'SKU *', 'qty *', 'price', 'gift', 'Row actions']);
+  assert.equal(bodyRows(el).length, 2);
+  const first = bodyRows(el)[0];
+  assert.equal(first.querySelector('input.se-input').value, 'A');                       // sku
+  assert.equal(first.querySelectorAll('td.se-cell').length, 4);
+  assert.equal(first.querySelector('td.se-idx').textContent, '1');
+  assert.equal(first.querySelector('input').getAttribute('aria-label'), 'SKU, row 1');
+});
+
+test('table: editing a cell is an ordinary edit: checked, patched and reported', () => {
+  const { el, editor, state } = tracked(itemsSchema({ tabular: true }), lines());
+  const sku = node(el, '/0/sku').querySelector('input');
+  sku.value = 'Z';
+  fire(sku, 'input');
+  assert.equal(editor.get('/0/sku'), 'Z');
+  assert.deepEqual(state.events.at(-1).patch, [{ op: 'replace', path: '/0/sku', value: 'Z' }]);
+  const qty = node(el, '/1/qty').querySelector('input');
+  qty.value = '0';                                                       // minimum 1
+  fire(qty, 'input');
+  assert.equal(editor.get('/1/qty'), 1);
+  assert.match(node(el, '/1/qty').querySelector('.se-draft').textContent, /at least 1/);
+  assert.deepEqual(state.problems, []);
+});
+
+test('table: rows can be added, moved and removed, and optional cells added and cleared', () => {
+  const { el, editor, state } = tracked(itemsSchema({ tabular: true }), lines());
+  button(el, '+ Add item').click();
+  assert.deepEqual(state.events.at(-1).patch, [{ op: 'add', path: '/2', value: { sku: 'x', qty: 1 } }]);
+  assert.equal(bodyRows(el).length, 3);
+
+  button(bodyRows(el)[0].querySelector('.se-cell-ctl'), '↓').click();
+  assert.deepEqual(state.events.at(-1).patch, [{ op: 'move', from: '/0', path: '/1' }]);
+  assert.equal(editor.get('/0/sku'), 'B');
+
+  button(bodyRows(el)[2].querySelector('.se-cell-ctl'), '✕').click();
+  assert.deepEqual(state.events.at(-1).patch, [{ op: 'remove', path: '/2' }]);
+  assert.equal(bodyRows(el).length, 2);
+
+  const missingPrice = bodyRows(el)[0].querySelectorAll('td.se-cell')[2];        // row 0 is now B, which has no price
+  assert.equal(missingPrice.querySelector('input'), null);
+  button(missingPrice, '+').click();
+  assert.deepEqual(state.events.at(-1).patch, [{ op: 'add', path: '/0/price', value: 0 }]);
+  const hasPrice = bodyRows(el)[0].querySelectorAll('td.se-cell')[2];
+  button(hasPrice, '✕').click();                                                  // optional cells can be cleared…
+  assert.deepEqual(state.events.at(-1).patch, [{ op: 'remove', path: '/0/price' }]);
+  assert.equal(bodyRows(el)[0].querySelector('td.se-cell input[aria-label^="SKU"]').value, 'B');
+  const required = bodyRows(el)[0].querySelectorAll('td.se-cell')[1];
+  assert.equal(button(required, '✕'), undefined, 'a required property has no remove button');
+  assert.deepEqual(state.problems, []);
+});
+
+test('tabular: false never shows a table, even when the items qualify', () => {
+  const { el } = make(itemsSchema({ tabular: false }), lines());
+  assert.equal(tableOf(el), null);
+  assert.equal(el.querySelectorAll('.se-item').length, 2);
+});
+
+test('tabular unset: a table when there is room for the columns, rows when there is not', () => {
+  const wide = attached(itemsSchema(), lines(), 1000);
+  const narrow = attached(itemsSchema(), lines(), 300);
+  try {
+    assert.ok(tableOf(wide.el));
+    assert.equal(tableOf(narrow.el), null);
+    assert.equal(narrow.el.querySelectorAll('.se-item').length, 2);
+  } finally { wide.remove(); narrow.remove(); }
+});
+
+test('tabular unset: it switches as the width changes, keeping values and focus', () => {
+  const observers = fakeResizeObservers();
+  const { el, editor, remove } = attached(itemsSchema(), lines(), 1000);
+  try {
+    assert.ok(tableOf(el));
+    node(el, '/0/sku').querySelector('input').focus();
+    observers.resize(320);                                          // the page gets narrow
+    assert.equal(tableOf(el), null);
+    assert.equal(el.querySelectorAll('.se-item').length, 2);
+    assert.equal(node(el, '/0/sku').querySelector('input').value, 'A');
+    assert.equal(document.activeElement.getAttribute('data-fk'), '/0/sku', 'focus stays on the same field');
+    button(el, '+ Add item').click();                               // a rebuild keeps the layout that was chosen
+    assert.equal(tableOf(el), null);
+    observers.resize(900);                                          // and wide again
+    assert.ok(tableOf(el));
+    assert.equal(bodyRows(el).length, 3);
+    assert.equal(document.activeElement.getAttribute('data-fk'), '/0/sku');
+    observers.resize(0);                                            // hidden: nothing to measure, nothing changes
+    assert.ok(tableOf(el));
+    assert.equal(observers.live().length, 1, 'only the current layout is being watched');
+    assert.equal(editor.get('').length, 3);
+  } finally { remove(); observers.restore(); }
+});
+
+test('tabular: true ignores the width, and a table is never forced on arrays that cannot be one', () => {
+  const observers = fakeResizeObservers();
+  const { el, remove } = attached(itemsSchema({ tabular: true }), lines(), 200);
+  try {
+    assert.ok(tableOf(el));
+    assert.equal(observers.all.length, 0, 'no need to watch the width');
+    assert.ok(parseInt(tableOf(el).style.minWidth) > 200, 'it scrolls sideways rather than squashing');
+  } finally { remove(); observers.restore(); }
+});
+
+test('table: only arrays of objects with a fixed set of simple properties qualify', () => {
+  const warned = [];
+  const original = console.warn;
+  console.warn = msg => warned.push(msg);
+  const withRow = (changes, drop = []) => {
+    const row = { ...ROW, properties: { ...ROW.properties }, ...changes };
+    for (const k of drop) delete row[k];
+    return itemsSchema({ tabular: true }, row);
+  };
+  const cannot = {
+    'additionalProperties not false': withRow({}, ['additionalProperties']),
+    'additionalProperties true': withRow({ additionalProperties: true }),
+    'an object property': withRow({ properties: { ...ROW.properties, owner: { type: 'object', properties: { a: { type: 'string' } } } } }),
+    'an array property': withRow({ properties: { ...ROW.properties, tags: { type: 'array', items: { type: 'string' } } } }),
+    'a oneOf property': withRow({ properties: { ...ROW.properties, either: { oneOf: [{ type: 'string' }, { type: 'integer' }] } } }),
+    'a nullable property': withRow({ properties: { ...ROW.properties, note: { type: ['string', 'null'] } } }),
+    'an enum of objects': withRow({ properties: { ...ROW.properties, shape: { enum: [{ a: 1 }, { a: 2 }] } } }),
+    'patternProperties': withRow({ patternProperties: { '^x-': { type: 'string' } } }),
+    'items that vary by if/then': withRow({ if: { required: ['gift'] }, then: { required: ['price'] } }),
+    'items that are a oneOf': itemsSchema({ tabular: true }, { oneOf: [ROW, { type: 'object', properties: {}, additionalProperties: false }] }),
+    'no properties': withRow({ properties: {} }),
+    'a tuple': { type: 'array', tabular: true, items: [ROW, ROW] },
+    'prefixItems': { type: 'array', tabular: true, prefixItems: [ROW], items: ROW },
+    'items that are not a schema': { type: 'array', tabular: true, items: true },
+    'items that are not objects': { type: 'array', tabular: true, items: { type: 'string' } },
+  };
+  try {
+    for (const [why, schema] of Object.entries(cannot)) {
+      warned.length = 0;
+      const { el } = make(schema, [], {});
+      assert.equal(tableOf(el), null, why);
+      assert.ok(el.querySelector('.se-array'), `${why}: drawn the normal way`);
+      assert.match(warned.join(), /tabular.*ignored/, `${why}: asking for a table says why it didn't happen`);
+    }
+    warned.length = 0;
+    make({ ...itemsSchema({ tabular: false }, withRow({ additionalProperties: true }).items) }, []);
+    assert.deepEqual(warned, [], 'tabular: false needs no explanation');
+    // a $ref to the row schema is fine, and enums, consts and a title/description of each column too
+    const ref = make({ type: 'array', tabular: true, items: { $ref: '#/$defs/row' }, $defs: { row: {
+      type: 'object', additionalProperties: false,
+      properties: { kind: { enum: ['a', 'b', 1, null, true] }, fixed: { const: 'x' }, n: { type: 'number', description: 'a number' } },
+    } } }, [{ kind: 'b', fixed: 'x', n: 1 }]);
+    assert.ok(tableOf(ref.el), 'a $ref to the item schema, and enum/const columns');
+    assert.equal(ref.el.querySelector('th[title="a number"]').textContent, 'n');
+  } finally { console.warn = original; }
+});
+
+test('table: a row has its own place for errors about the row, and cells show their own', () => {
+  const { el, editor } = make(itemsSchema({ tabular: true }), [{ sku: 'A' }, { sku: 'B', qty: 0 }]);   // row 0 lacks qty; row 1's qty is too small
+  const errorsOf = ptr => { const n = node(el, ptr); return [...(n._errBox || n.firstElementChild).querySelectorAll('.se-error')].map(e => e.textContent); };
+  assert.deepEqual(errorsOf('/0'), ['Missing required property "qty"']);
+  assert.equal(node(el, '/0')._errRow.hidden, false);
+  assert.equal(node(el, '/1')._errRow.hidden, true, 'rows with nothing to say show nothing');
+  assert.deepEqual(errorsOf('/1/qty'), ['Must be at least 1']);
+  const missing = bodyRows(el)[0].querySelectorAll('td.se-cell')[1];                // a missing required cell
+  button(missing, '+').click();                                                      // adds it, which fixes the row
+  assert.equal(editor.get('/0/qty'), 1);
+  assert.equal(node(el, '/0')._errRow.hidden, true);
+  assert.equal(editor.validate().length, 1);
+});
+
+test('table: something in an array that is not an object can be put right', () => {
+  const { el, editor } = make(itemsSchema({ tabular: true }), [{ sku: 'A', qty: 1 }, 'oops']);
+  const second = bodyRows(el)[1];
+  assert.equal(second.querySelectorAll('td.se-cell').length, 0);
+  button(second, 'Replace with a valid object').click();
+  assert.deepEqual(editor.get('/1'), { sku: 'x', qty: 1 });                          // the smallest valid row
+});
+
+test('table: the render hook is called for the array and each cell, not for the rows', () => {
+  const seen = [];
+  const { el, editor } = make(itemsSchema({ tabular: true }), [{ sku: 'A', qty: 2 }], { render: info => {
+    seen.push(info.path);
+    if (info.path === '/0/qty') {
+      const b = document.createElement('button');
+      b.className = 'qty-widget';
+      b.addEventListener('click', () => info.set(info.value + 1));
+      return b;
+    }
+    return undefined;
+  } });
+  assert.deepEqual(seen, ['', '/0/sku', '/0/qty']);                                  // the array, then cells: no '/0'
+  node(el, '/0/qty').querySelector('.qty-widget').click();
+  assert.equal(editor.get('/0/qty'), 3);
+});
+
 test('if/then: choosing role "staff" adds the newly required department', () => {
   const { el, editor } = make(contactSchema, contactDoc);
   const select = node(el, '/role').querySelector('select');

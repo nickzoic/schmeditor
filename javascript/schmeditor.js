@@ -37,6 +37,12 @@
  *           and after insert/push, `path` is the array and `value` its new contents.
  * SchemaEditor.applyPatch(doc, patch) applies a JSON Patch to a copy of a document.
  *
+ * Tables: an array whose items are objects with a fixed set of simple properties (`properties`,
+ * `additionalProperties: false`, each property a string, number, integer, boolean, null, enum or
+ * const) can be shown as a table, a row per object and a column per property. The array's
+ * `tabular` keyword decides: true always shows a table, false never does, and if it isn't set
+ * the editor shows a table when there is room for the columns, and switches as the page resizes.
+ *
  * Custom rendering: the `render` option is called for every node as it is drawn, with
  * info = {schema, value, path, set, editor}:
  *   schema  the node's schema, with $ref, allOf and if/then/else resolved (treat as read-only);
@@ -981,14 +987,20 @@
 
     _refreshErrors() {
       const nodes = new Map();
+      // A node's errors go in its first child, unless it names another place (a table row does,
+      // and a hidden row of its own that is shown only while it has something to say).
+      const box = n => n._errBox || n.firstElementChild;
       this.container.querySelectorAll('.se-node').forEach(n => {
         nodes.set(n.getAttribute('data-ptr'), n); // later (deeper) nodes win for duplicate pointers
-        n.firstElementChild.textContent = '';
+        box(n).textContent = '';
+        if (n._errRow) n._errRow.hidden = true;
       });
       for (const e of this._errs) {
         let p = e.path, n = nodes.get(p);
         while (!n && p !== '') { p = p.slice(0, p.lastIndexOf('/')); n = nodes.get(p); }
-        if (n) n.firstElementChild.append(h('div', { class: 'se-error' }, e.message));
+        if (!n) continue;
+        box(n).append(h('div', { class: 'se-error' }, e.message));
+        if (n._errRow) n._errRow.hidden = false;
       }
     }
 
@@ -1337,6 +1349,45 @@
       }
     }
 
+    // The columns for showing an array as a table, or null if its items aren't objects with a
+    // fixed set of simple properties. `s` is the array's normalised schema.
+    _tableColumns(s) {
+      if (!isObj(s.items)) return null;                 // not a schema for every item (or a tuple)
+      const item = this._norm(s.items);
+      const unstable = ['oneOf', 'anyOf', 'if', 'dependentSchemas', 'dependencies'];   // can change a row's shape
+      if (unstable.some(k => k in item)) return null;
+      if (!isObj(item.properties) || item.additionalProperties !== false) return null;
+      if (isObj(item.patternProperties) && Object.keys(item.patternProperties).length) return null;
+      const types = this._types(item);
+      if (types.length !== 1 || types[0] !== 'object') return null;
+      const required = new Set(Array.isArray(item.required) ? item.required : []);
+      const isScalar = v => v === null || typeof v !== 'object';
+      const columns = [];
+      for (const key of Object.keys(item.properties)) {
+        const ps = this._norm(item.properties[key]);
+        if (unstable.some(k => k in ps)) return null;
+        let kind = null;
+        if ('const' in ps) kind = isScalar(ps.const) ? 'const' : null;
+        else if (Array.isArray(ps.enum)) kind = ps.enum.every(isScalar) ? 'enum' : null;
+        else {
+          const ts = this._types(ps);
+          if (ts.length === 1 && ['string', 'number', 'integer', 'boolean', 'null'].includes(ts[0]))
+            kind = ts[0] === 'integer' ? 'number' : ts[0];
+        }
+        if (!kind) return null;
+        columns.push({ key, kind, schema: item.properties[key], title: ps.title || key, description: ps.description || '',
+                       required: required.has(key) });
+      }
+      return columns.length ? columns : null;
+    }
+
+    // How wide (in px) a table of these columns needs to be to be comfortable: room for the row
+    // number and the row buttons, plus a minimum for each column.
+    _tableWidth(columns) {
+      const min = { boolean: 80, number: 90, const: 90, enum: 120, null: 60, string: 140 };
+      return 150 + columns.reduce((sum, c) => sum + min[c.kind], 0);
+    }
+
     _renderArray(ctx) {
       const { s, path, body, rebuild } = ctx;
       const arr = getAt(this._doc, path);
@@ -1357,16 +1408,15 @@
         return b;
       };
 
-      arr.forEach((_, i) => {
-        const row = h('div', { class: 'se-item' });
-        const main = h('div', { class: 'se-item-main' }, this._renderNode(this._itemSchema(s, i), path.concat(i)));
+      // The row buttons: move up, move down, remove. `tell(messages)` shows why an edit was refused.
+      const itemControls = (i, row, tell) => {
         const move = dir => {
           const r = this._commit(d => {
             const a = getAt(d, path);
             const [x] = a.splice(i, 1);
             a.splice(i + dir, 0, x);
           }, row, path, { primary: [{ op: 'move', from: toPtr(path.concat(i)), path: toPtr(path.concat(i + dir)) }] });
-          if (r.ok) rebuild(); else this._notice(row, this._fmt(r.errors, toPtr(path)));
+          if (r.ok) rebuild(); else tell(this._fmt(r.errors, toPtr(path)));
         };
         // Tuple slots (prefixItems / array-form items) have a schema tied to their position, so
         // they never move, and they can only be removed from the end of the array (and never
@@ -1380,17 +1430,116 @@
         if (!fixed && (!pinned || i >= minI))
           ctl.append(button('✕', 'Remove item', arr.length <= minI || (pinned && i !== arr.length - 1), () => {
             const r = this._commit(d => { getAt(d, path).splice(i, 1); }, row, path.concat(i), { removed: true });
-            if (r.ok) rebuild(); else this._notice(row, this._fmt(r.errors, toPtr(path)));
+            if (r.ok) rebuild(); else tell(this._fmt(r.errors, toPtr(path)));
           }));
+        return ctl;
+      };
+
+      // The items as a list of rows, each holding the item's own editor.
+      const listRows = () => arr.map((_, i) => {
+        const row = h('div', { class: 'se-item' });
+        const main = h('div', { class: 'se-item-main' }, this._renderNode(this._itemSchema(s, i), path.concat(i)));
+        const ctl = itemControls(i, row, msgs => this._notice(row, msgs));
         row.append(h('span', { class: 'se-idx' }, String(i + 1)), main);
         if (ctl.children.length || !fixed) row.append(ctl); // an empty column keeps rows aligned
-        list.append(row);
+        return row;
       });
+
+      // The items as a table: a row per object, a column per property. Each cell is the normal
+      // editor for that property, so checking, patches and the render hook all work as usual.
+      const tableRows = columns => {
+        // Never narrower than the columns need: a table forced on a narrow page scrolls sideways
+        // rather than squashing its controls.
+        const table = h('table', { class: 'se-table', style: 'min-width:' + this._tableWidth(columns) + 'px' });
+        table.append(h('thead', null, h('tr', null,
+          h('th', { scope: 'col', class: 'se-th-idx' }, '#'),
+          columns.map(c => h('th', { scope: 'col', title: c.description || null }, c.title,
+            c.required ? h('span', { class: 'se-req', title: 'Required' }, ' *') : null)),
+          h('th', { scope: 'col', class: 'se-th-ctl' }, h('span', { class: 'se-sr' }, 'Row actions')))));
+        const tbody = h('tbody');
+        table.append(tbody);
+        arr.forEach((value, i) => {
+          const rowPath = path.concat(i);
+          const errBox = h('div', { class: 'se-errors' });
+          const errRow = h('tr', { class: 'se-row-errors', hidden: true }, h('td', { colspan: String(columns.length + 2) }, errBox));
+          const tr = h('tr', { class: 'se-row se-node', 'data-ptr': toPtr(rowPath) }, h('td', { class: 'se-idx' }, String(i + 1)));
+          tr._errBox = errBox;                    // errors about the row itself are shown in the row below it
+          tr._errRow = errRow;
+          const tell = msgs => {
+            errRow.hidden = false;
+            this._notice(errBox, msgs);
+            setTimeout(() => { if (!errBox.textContent.trim()) errRow.hidden = true; }, 5100);
+          };
+          if (!isObj(value)) {                    // something that isn't an object: the normal way to put it right
+            tr.append(h('td', { colspan: String(columns.length) }, this._renderNode(this._itemSchema(s, i), rowPath)));
+          } else {
+            for (const c of columns) {
+              const cellPath = rowPath.concat(c.key);
+              const td = h('td', { class: 'se-cell' });
+              if (hasOwn(value, c.key)) {
+                const cell = this._renderNode(c.schema, cellPath);
+                cell.querySelectorAll('input, select, textarea').forEach(el => el.setAttribute('aria-label', `${c.title}, row ${i + 1}`));
+                const inner = h('div', { class: 'se-cell-inner' }, cell);
+                if (!c.required) inner.append(button('✕', 'Remove ' + c.title, false, () => {
+                  const r = this._commit(d => { delete getAt(d, rowPath)[c.key]; }, tr, cellPath, { noRepair: true, removed: true });
+                  if (r.ok) rebuild(); else tell(this._fmt(r.errors, toPtr(rowPath)));
+                }));
+                td.append(inner);
+              } else {
+                td.append(button('+', 'Add ' + c.title, false, () => {
+                  const nv = this._defaultFor(c.schema);
+                  const r = this._commit(d => { getAt(d, rowPath)[c.key] = nv; }, tr, cellPath);
+                  if (r.ok) rebuild(); else tell(this._fmt(r.errors, toPtr(rowPath)));
+                }));
+              }
+              tr.append(td);
+            }
+          }
+          tr.append(h('td', { class: 'se-cell-ctl' }, itemControls(i, tr, tell)));
+          tbody.append(tr, errRow);
+        });
+        return [h('div', { class: 'se-tablewrap' }, table)];
+      };
+
+      // Table or list? The array's `tabular` keyword: true for always, false for never, otherwise
+      // a table when the columns fit in the width available. Arrays that can't be a table never are.
+      const columns = prefixLen === 0 ? this._tableColumns(s) : null;
+      const tabular = typeof s.tabular === 'boolean' ? s.tabular : undefined;
+      if (tabular === true && !columns)
+        console.warn('schmeditor: "tabular": true is ignored for ' + (toPtr(path) || 'the document') +
+          ', because its items are not objects with a fixed set of simple properties');
+      const canTable = !!columns && tabular !== false;
+      const needed = columns ? this._tableWidth(columns) : 0;
+      let addRow = null;
+      const draw = asTable => {
+        list.querySelectorAll(':scope > .se-item, :scope > .se-tablewrap').forEach(n => n.remove());
+        for (const el of asTable && arr.length ? tableRows(columns) : listRows()) list.insertBefore(el, addRow);
+      };
+      let asTable = canTable && tabular === true;
+      if (canTable && tabular === undefined) {
+        // Keep what the last layout decided across rebuilds, so adding a row doesn't flicker; the
+        // first time, guess from the width of the whole editor (less some for nesting).
+        asTable = ctx.asTable !== undefined ? ctx.asTable
+          : this.container.getBoundingClientRect().width - path.length * 12 >= needed;
+        if (ctx.watcher) ctx.watcher.disconnect();
+        if (typeof ResizeObserver === 'function') {
+          const watcher = ctx.watcher = new ResizeObserver(entries => {
+            if (!body.isConnected) { watcher.disconnect(); return; }   // this array has been redrawn or removed
+            const width = entries[entries.length - 1].contentRect.width;
+            if (width === 0) return;                                    // hidden: nothing to measure
+            const wanted = width >= needed;
+            if (wanted !== asTable) { asTable = ctx.asTable = wanted; this._keepFocus(() => draw(asTable)); }
+          });
+          watcher.observe(body);
+        }
+        ctx.asTable = asTable;
+      }
+      draw(asTable);
 
       if (fixed) return;
       const nextSchema = this._itemSchema(s, arr.length);
       const full = (s.maxItems !== undefined && arr.length >= s.maxItems) || nextSchema === false;
-      const addRow = h('div', { class: 'se-addrow' });
+      addRow = h('div', { class: 'se-addrow' });
       addRow.append(button('+ Add item', 'Add an item', full, b => {
         let r, firstFailure;
         for (const nv of this._candidates(nextSchema)) {

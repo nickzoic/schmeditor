@@ -10,24 +10,13 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const puppeteer = require('puppeteer-core');
+const { launchBrowser } = require('./launch');
 
 const JS = path.join(__dirname, '..', 'schmeditor.js');
 const CSS = path.join(__dirname, '..', 'schmeditor.css');
 
 let browser;
-test.before(async () => {
-  const headless = process.env.CHROME_HEADLESS === 'shell' ? 'shell' : true;
-  const args = ['--no-sandbox', ...(process.env.CHROME_ARGS ? process.env.CHROME_ARGS.split(' ') : [])];
-  try {
-    browser = await puppeteer.launch(process.env.CHROME_PATH
-      ? { executablePath: process.env.CHROME_PATH, headless, args }
-      : { channel: 'chrome', headless, args });
-  } catch (e) {
-    if (process.env.REQUIRE_BROWSER) throw e;
-    console.log('# no browser available, skipping the browser tests: ' + e.message.split('\n')[0]);
-  }
-});
+test.before(async () => { browser = await launchBrowser(); });
 test.after(async () => { if (browser) await browser.close(); });
 
 // ---- colour helpers (computed styles come back as rgb(), rgba() or color(srgb …))

@@ -55,8 +55,9 @@
   --se-literal: #d2a8ff;
 }
 
+.se-root,
 .se-root * {
-  box-sizing: border-box;
+  box-sizing: border-box;   /* a width you give the editor includes its padding */
 }
 
 .se-title {
@@ -224,6 +225,79 @@ textarea.se-input {
   padding-top: 3px;
   justify-content: flex-end;
   min-width: 7.2em;
+}
+
+/* An array of objects with fixed simple properties, shown as a table: a row per object and a
+   column per property. */
+.se-tablewrap {
+  overflow-x: auto;
+}
+
+.se-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.se-table th {
+  text-align: left;
+  font-weight: 600;
+  padding: 0 6px 6px;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--se-line);
+}
+
+.se-table td {
+  padding: 5px 6px;
+  vertical-align: top;
+  border-bottom: 1px solid var(--se-soft);
+}
+
+.se-table .se-th-idx,
+.se-table .se-idx {
+  width: 1%;
+  text-align: right;
+}
+
+.se-table .se-idx {
+  padding-top: 11px;
+  color: var(--se-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.se-table .se-cell-ctl {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.se-table .se-input,
+.se-table .se-select {
+  min-width: 5em;
+}
+
+.se-cell-inner {
+  display: flex;
+  gap: 4px;
+  align-items: flex-start;
+}
+
+.se-cell-inner > .se-node {
+  flex: 1;
+  min-width: 0;
+}
+
+.se-table .se-row-errors td {
+  padding-top: 0;
+  border-bottom: 0;
+}
+
+/* Text for screen readers only. */
+.se-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 .se-addrow {
