@@ -49,6 +49,7 @@ const contrast = (a, b) => { const [hi, lo] = [luminance(a), luminance(b)].sort(
 const SCHEMA = { title: 'Contact', type: 'object', required: ['name'], properties: {
   name: { type: 'string', minLength: 2, description: 'At least two characters.' },
   role: { enum: ['customer', 'partner'] },
+  flag: { enum: [null, true, false, 'true', 'x'] },
 } };
 
 // Render an editor in a fresh page, with the browser set to `scheme`, and measure it.
@@ -58,7 +59,7 @@ async function measure({ scheme, attrs = '', style = '', bodyStyle = '' }) {
     <link rel="stylesheet" href="file://${CSS}"><style>${style}</style></head>
     <body style="margin:0;${bodyStyle}"><div id="editor" ${attrs}></div>
     <script src="file://${JS}"></script>
-    <script>new SchemaEditor(document.getElementById('editor'), ${JSON.stringify(SCHEMA)}, { name: 'A', role: 'partner' });</script></body></html>`);
+    <script>new SchemaEditor(document.getElementById('editor'), ${JSON.stringify(SCHEMA)}, { name: 'A', role: 'partner', flag: null });</script></body></html>`);
   const page = await browser.newPage();
   try {
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: scheme }]);
@@ -73,6 +74,12 @@ async function measure({ scheme, attrs = '', style = '', bodyStyle = '' }) {
         inputFg: css(input).color, inputBorder: css(input).borderTopColor, outline: css(input).outlineColor,
         error: css(root.querySelector('.se-error')).color, muted: css(root.querySelector('.se-desc')).color,
         focusVar: css(root).getPropertyValue('--se-focus'), selectBg: css(root.querySelector('select')).backgroundColor,
+        literalVar: css(root).getPropertyValue('--se-literal'),
+        flagSelect: (e => ({ color: css(e).color, fontStyle: css(e).fontStyle }))(root.querySelector('[data-ptr="/flag"] select')),
+        literalOption: (e => ({ color: css(e).color, fontStyle: css(e).fontStyle, fontFamily: css(e).fontFamily }))(
+          root.querySelector('[data-ptr="/flag"] option.se-literal')),
+        stringOption: (e => ({ color: css(e).color, fontStyle: css(e).fontStyle, fontFamily: css(e).fontFamily }))(
+          [...root.querySelectorAll('[data-ptr="/flag"] option')].find(o => o.textContent === 'x')),
       };
     });
   } finally {
@@ -131,7 +138,24 @@ for (const [name, opts] of [['light', { scheme: 'light' }], ['dark', { scheme: '
     assert.ok(ratio(m.error) >= 4.5, `error text ${ratio(m.error).toFixed(1)}:1 (${m.error} on ${m.bg})`);
     assert.ok(ratio(m.muted) >= 4.5, `description text ${ratio(m.muted).toFixed(1)}:1 (${m.muted} on ${m.bg})`);
     assert.ok(ratio(m.focusVar) >= 3, `focus ring ${ratio(m.focusVar).toFixed(1)}:1 (${m.focusVar} on ${m.bg})`);
+    assert.ok(ratio(m.literalVar) >= 4.5, `null/true/false option text ${ratio(m.literalVar).toFixed(1)}:1 (${m.literalVar} on ${m.bg})`);
     assert.equal(parseColour(m.outline).slice(0, 3).map(x => x.toFixed(2)).join(),
       parseColour(m.focusVar).slice(0, 3).map(x => x.toFixed(2)).join());           // the ring really uses --se-focus
+  });
+}
+
+for (const scheme of ['light', 'dark']) {
+  test(`enum options for null, true and false look different from strings: ${scheme}`, async t => {
+    if (needBrowser(t)) return;
+    const m = await measure({ scheme });
+    const colour = c => parseColour(c).slice(0, 3).map(x => x.toFixed(2)).join();
+    assert.equal(m.literalOption.fontStyle, 'italic');
+    assert.equal(m.stringOption.fontStyle, 'normal');
+    assert.notEqual(m.literalOption.fontFamily, m.stringOption.fontFamily);                  // monospace against the page font
+    assert.match(m.literalOption.fontFamily, /monospace|Menlo|Consolas/);
+    assert.notEqual(colour(m.literalOption.color), colour(m.stringOption.color));
+    assert.equal(colour(m.literalOption.color), colour(m.literalVar));                       // and uses --se-literal
+    assert.equal(m.flagSelect.fontStyle, 'italic', 'the closed select shows null in the same style');
+    assert.equal(colour(m.flagSelect.color), colour(m.literalVar));
   });
 }

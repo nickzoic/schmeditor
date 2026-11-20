@@ -68,6 +68,7 @@
     },
     "externalId": 42,
     "priority": "urgent",
+    "consent": true,
     "referrals": [],
     "relatives": [
       {

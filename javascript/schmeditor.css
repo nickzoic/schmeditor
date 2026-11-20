@@ -11,7 +11,7 @@
  * To restyle it, or to blend it into a page that manages its own colours, set custom properties
  * on .se-root. For example:
  *   .se-root { --se-bg: transparent; --se-fg: inherit; --se-padding: 0; }
- *   .se-root { --se-err: #b00020; --se-focus: #0a7; }
+ *   .se-root { --se-err: #b00020; --se-focus: #0a7; --se-literal: #639; }
  */
 
 .se-root {
@@ -24,10 +24,13 @@
   --se-muted: color-mix(in srgb, currentColor 62%, transparent);
   --se-err: #c62828;
   --se-focus: #1d63d6;
+  --se-literal: #6f42c1;
+  --se-font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --se-mono: ui-monospace, Menlo, Consolas, monospace;
   background: var(--se-bg);
   color: var(--se-fg);
   padding: var(--se-padding);
-  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font: 14px/1.45 var(--se-font);
   text-align: left;
 }
 
@@ -36,6 +39,7 @@
   .se-root:not([data-theme="light"]) {
     --se-err: #ff7b72;
     --se-focus: #79b8ff;
+    --se-literal: #d2a8ff;
   }
 }
 
@@ -48,6 +52,7 @@
   color-scheme: dark;
   --se-err: #ff7b72;
   --se-focus: #79b8ff;
+  --se-literal: #d2a8ff;
 }
 
 .se-root * {
@@ -144,6 +149,20 @@ textarea.se-input {
 .se-select option {
   background: Canvas;
   color: CanvasText;
+  /* Options inherit from their select, which is italic monospace while null, true or false is
+     selected, so say what an ordinary option looks like. */
+  font-family: var(--se-font);
+  font-style: normal;
+}
+
+/* null, true and false in an enum: not strings, so they look different. (Browsers let options
+   be styled only a little, and mobile pickers not at all; the select itself takes the same
+   style while one of them is selected.) */
+.se-select option.se-literal,
+.se-select.se-literal {
+  color: var(--se-literal);
+  font-family: var(--se-mono);
+  font-style: italic;
 }
 
 .se-variant-bar {

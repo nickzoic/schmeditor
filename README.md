@@ -17,7 +17,9 @@ A document that starts out valid therefore stays valid, however you edit it.
 ## What it does
 
 * Edits strings, numbers, integers, booleans, `null`, enums, objects and arrays, with the schema's
-  `title`, `description` and constraints shown beside each field.
+  `title`, `description` and constraints shown beside each field. In an enum, `null`, `true` and
+  `false` are styled so they can't be mistaken for the strings `"null"`, `"true"` and `"false"`
+  (browser component).
 * **Refuses bad edits with a reason.** Typing `ab` into a field with `minLength: 3` shows why it
   isn't accepted; the document keeps its last valid value.
 * **Handles alternatives.** `oneOf`/`anyOf` branches and multi-type fields (`["string", "null"]`)
@@ -73,7 +75,8 @@ properties on `.se-root`:
 ```
 
 The properties are `--se-bg`, `--se-fg`, `--se-padding`, `--se-line`, `--se-soft`, `--se-muted`,
-`--se-err` and `--se-focus`.
+`--se-err`, `--se-focus`, `--se-literal` (the colour of `null`, `true` and `false` in an enum), `--se-font`
+and `--se-mono`.
 
 **Demonstration page.** Open [`javascript/index.html`](javascript/index.html) in a browser (no
 build step or server is needed). It has two examples:

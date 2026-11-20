@@ -489,6 +489,37 @@ test('render hook: a hook that throws, or returns a non-element, falls back to t
   assert.match(logged[1], /must return an element/);
 });
 
+test('enum: null, true and false are marked as not being strings', () => {
+  const { el, editor } = make({ enum: [null, true, false, 'true', 'null', 'x', 1] }, null);
+  const options = [...el.querySelectorAll('option')];
+  assert.deepEqual(options.map(o => [o.textContent, o.classList.contains('se-literal')]), [
+    ['null', true], ['true', true], ['false', true],
+    ['"true"', false], ['"null"', false],                         // strings that would look like a literal are quoted
+    ['x', false], ['1', false],
+  ]);
+  const select = el.querySelector('select');
+  assert.ok(select.classList.contains('se-literal'), 'the closed select is styled while a literal is selected');
+  select.value = '5';                                              // "x"
+  fire(select, 'change');
+  assert.equal(editor.get(''), 'x');
+  assert.ok(!select.classList.contains('se-literal'));
+  select.value = '2';                                              // false
+  fire(select, 'change');
+  assert.equal(editor.get(''), false);
+  assert.ok(select.classList.contains('se-literal'));
+  select.value = '3';                                              // the string "true", which is not the boolean
+  fire(select, 'change');
+  assert.equal(editor.get(''), 'true');
+  assert.ok(!select.classList.contains('se-literal'));
+});
+
+test('enum: strings are left as they are when nothing could be mistaken for them', () => {
+  const { el } = make({ enum: ['true', 'x'] }, 'true');
+  assert.deepEqual([...el.querySelectorAll('option')].map(o => [o.textContent, o.classList.contains('se-literal')]),
+    [['true', false], ['x', false]]);
+  assert.ok(!el.querySelector('select').classList.contains('se-literal'));
+});
+
 test('if/then: choosing role "staff" adds the newly required department', () => {
   const { el, editor } = make(contactSchema, contactDoc);
   const select = node(el, '/role').querySelector('select');

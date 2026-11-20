@@ -141,6 +141,7 @@ const schema = {
         },
         externalId: { type: ['string', 'integer'], description: 'A type array: string or integer.' },
         priority: { enum: [1, 2, 3, 'urgent', null], description: 'enum with mixed types.' },
+        consent: { enum: [true, false, null, 'true'], description: 'enum with true, false and null, which are styled so they can’t be taken for strings. The string “true” is shown in quotes.' },
         referrals: { type: 'array', items: { $ref: '#' }, maxItems: 3, description: '$ref “#”: each referral is a whole Contact.' },
         relatives: { type: 'array', items: { $ref: '#/$defs/person' }, description: 'A recursive $ref: people with relatives.' }
       }
@@ -177,6 +178,7 @@ const initial = {
     pet: { good: true },
     externalId: 42,
     priority: 'urgent',
+    consent: true,
     referrals: [],
     relatives: [{ name: 'Charles', relatives: [{ name: 'Annabella' }] }]
   }

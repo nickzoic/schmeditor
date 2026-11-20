@@ -1119,17 +1119,24 @@
     _renderEnum(ctx) {
       const { s, path, body } = ctx;
       const value = getAt(this._doc, path);
-      const label = v => (typeof v === 'string' ? v : JSON.stringify(v));
+      // null, true and false are not strings: they get a class (styled in the stylesheet), and a
+      // string that would look just like one of them is shown in quotes, in case styling is ignored.
+      const isLiteral = v => v === null || v === true || v === false;
+      const literals = new Set(s.enum.filter(isLiteral).map(v => JSON.stringify(v)));
+      const label = v => (typeof v === 'string' ? (literals.has(v) ? JSON.stringify(v) : v) : JSON.stringify(v));
       const sel = h('select', { class: 'se-select', 'data-fk': toPtr(path) });
       let cur = s.enum.findIndex(e => deepEqual(e, value));
+      const markSelected = () => sel.classList.toggle('se-literal', cur >= 0 && isLiteral(s.enum[cur]));
       if (cur < 0) sel.append(h('option', { value: '-1', disabled: true }, '(current value is not allowed)'));
-      s.enum.forEach((v, i) => sel.append(h('option', { value: String(i) }, label(v))));
+      s.enum.forEach((v, i) => sel.append(h('option', { value: String(i), class: isLiteral(v) ? 'se-literal' : null }, label(v))));
       sel.value = String(cur);
+      markSelected();
       sel.addEventListener('change', () => {
         const i = +sel.value;
         const r = this._commit(d => setAt(d, path, clone(s.enum[i])), sel, path);
         if (r.ok) cur = i;
         else { sel.value = String(cur); this._notice(sel, this._fmt(r.errors, toPtr(path))); }
+        markSelected();
       });
       body.append(sel);
     }

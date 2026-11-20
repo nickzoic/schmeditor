@@ -456,6 +456,15 @@
           ],
           "description": "enum with mixed types."
         },
+        "consent": {
+          "enum": [
+            true,
+            false,
+            null,
+            "true"
+          ],
+          "description": "enum with true, false and null, which are styled so they can’t be taken for strings. The string “true” is shown in quotes."
+        },
         "referrals": {
           "type": "array",
           "items": {
