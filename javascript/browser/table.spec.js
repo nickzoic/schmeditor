@@ -22,19 +22,29 @@ const ROW = {
 };
 const DOC = [{ sku: 'A-100', qty: 2, price: 9.5, gift: false }, { sku: 'B-200', qty: 1 }];
 
-// Open a page with the editor in a container `width` px wide.
-async function open(width, extra = {}, scheme = 'light') {
+// Open a page with an editor for `schema` and `doc` in a container `width` px wide.
+async function openWith(schema, doc, width, scheme = 'light') {
   const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'schmeditor-')), 'page.html');
-  const schema = { type: 'array', items: ROW, ...extra };
   fs.writeFileSync(file, `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="file://${CSS}"></head>
     <body style="margin:0"><div id="editor" style="width:${width}px"></div><script src="file://${JS}"></script>
-    <script>window.editor = new SchemaEditor(document.getElementById('editor'), ${JSON.stringify(schema)}, ${JSON.stringify(DOC)});</script></body></html>`);
+    <script>window.editor = new SchemaEditor(document.getElementById('editor'), ${JSON.stringify(schema)}, ${JSON.stringify(doc)});</script></body></html>`);
   const page = await browser.newPage();
   await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: scheme }]);
   await page.goto('file://' + file, { waitUntil: 'load' });
   return page;
 }
-const layout = page => page.evaluate(() => (document.querySelector('table.se-table') ? 'table' : document.querySelector('.se-item') ? 'rows' : 'none'));
+// An array of the rows above, in a container `width` px wide.
+const open = (width, extra = {}, scheme = 'light') => openWith({ type: 'array', items: ROW, ...extra }, DOC, width, scheme);
+
+const STOCK_ROW = {
+  type: 'object', additionalProperties: false, required: ['qty'],
+  properties: { qty: { title: 'Qty', type: 'integer' }, reorder: { type: 'boolean' }, note: { type: 'string' } },
+};
+const STOCK = { warehouse: 'Melbourne', 'A-100': { qty: 12, reorder: false }, 'B-200': { qty: 0, note: 'discontinued' } };
+const openStock = (width, extra = {}) =>
+  openWith({ type: 'object', properties: { warehouse: { type: 'string' } }, additionalProperties: STOCK_ROW, ...extra }, STOCK, width);
+
+const layout = page => page.evaluate(() => (document.querySelector('table.se-table') ? 'table' : document.querySelector('.se-item, .se-extra') ? 'rows' : 'none'));
 const setWidth = (page, width) => page.evaluate(w => { document.getElementById('editor').style.width = w + 'px'; }, width);
 const settle = ms => new Promise(r => setTimeout(r, ms));
 
@@ -128,4 +138,85 @@ for (const scheme of ['light', 'dark']) {
       assert.equal(m.headColor, await page.evaluate(() => getComputedStyle(document.querySelector('.se-root')).color), 'headings use the text colour');
     } finally { await page.close(); }
   });
+}
+
+test('an object of objects follows the real width too, keeping focus on a name', async t => {
+  if (needBrowser(t)) return;
+  const page = await openStock(900);
+  try {
+    await settle(150);
+    assert.equal(await layout(page), 'table');
+    await page.focus('[data-fk="#A-100"]');
+    await setWidth(page, 300);
+    await page.waitForFunction(() => !document.querySelector('table.se-table'));
+    assert.equal(await page.evaluate(() => document.querySelectorAll('.se-extra').length), 2);
+    assert.equal(await page.evaluate(() => document.activeElement.getAttribute('data-fk')), '#A-100');
+    await setWidth(page, 900);
+    await page.waitForFunction(() => !!document.querySelector('table.se-table'));
+    assert.equal(await page.evaluate(() => document.activeElement.getAttribute('data-fk')), '#A-100');
+    assert.equal(await page.evaluate(() => editor.get('/warehouse')), 'Melbourne');
+  } finally { await page.close(); }
+});
+
+test('an object table: the declared property is above it, names line up under "Name"', async t => {
+  if (needBrowser(t)) return;
+  const page = await openStock(900, { tabular: true });
+  try {
+    const m = await page.evaluate(() => {
+      const table = document.querySelector('table.se-table'), declared = document.querySelector('[data-ptr="/warehouse"]');
+      const heads = [...table.querySelectorAll('thead th')].map(th => th.getBoundingClientRect().left);
+      return {
+        above: declared.getBoundingClientRect().bottom <= table.getBoundingClientRect().top,
+        firstHeading: table.querySelector('thead th').textContent,
+        offsets: [...table.querySelectorAll('tbody tr.se-row')].flatMap(tr => [...tr.children].map((td, i) => Math.abs(td.getBoundingClientRect().left - heads[i]))),
+        addBelow: table.getBoundingClientRect().bottom <= document.querySelector('.se-addrow').getBoundingClientRect().top,
+      };
+    });
+    assert.ok(m.above, 'warehouse is above the table');
+    assert.ok(m.addBelow, 'the add-property row is below it');
+    assert.equal(m.firstHeading, 'Name');
+    for (const offset of m.offsets) assert.ok(offset < 1.5, `a cell is ${offset}px off its heading`);
+  } finally { await page.close(); }
+});
+
+// Calibration: for each kind of column the editor has to be right about when a table fits. The widest a
+// table of these columns can be and still be chosen is the width it computes (its min-width); at that width
+// the real table must fit without scrolling, and one pixel less must give rows.
+const SAMPLE = { string: 'sample text', number: 1.5, boolean: false, enum: 'mobile', const: 'x', null: null };
+const KINDS = {
+  string: { type: 'string' }, number: { type: 'number' }, boolean: { type: 'boolean' },
+  enum: { enum: ['mobile', 'home', 'work'] }, const: { const: 'x' }, null: { type: 'null' },
+};
+const calibrationCases = [];
+for (const [kind, schema] of Object.entries(KINDS)) {
+  for (const required of [true, false]) calibrationCases.push({ name: `${required ? 'required' : 'optional'} ${kind}`, props: { [kind]: schema }, required: required ? [kind] : [] });
+}
+calibrationCases.push({ name: 'one of every kind, required', props: KINDS, required: Object.keys(KINDS) });
+calibrationCases.push({ name: 'one of every kind, optional', props: KINDS, required: [] });
+
+for (const shape of ['array', 'object']) {
+  for (const c of calibrationCases) {
+    test(`the width a table needs is right: ${shape} of ${c.name}`, async t => {
+      if (needBrowser(t)) return;
+      const row = { type: 'object', additionalProperties: false, required: c.required, properties: c.props };
+      const rowValue = Object.fromEntries(Object.keys(c.props).map(k => [k, SAMPLE[k]]));
+      const schema = shape === 'array' ? { type: 'array', items: row } : { type: 'object', additionalProperties: row };
+      const doc = shape === 'array' ? [rowValue] : { 'row-1': rowValue };
+      const page = await openWith(schema, doc, 2000);
+      try {
+        await settle(100);
+        assert.equal(await layout(page), 'table', 'plenty of room: a table');
+        const needed = await page.evaluate(() => parseInt(document.querySelector('table.se-table').style.minWidth));
+        const padding = 24;                                           // the editor's own padding
+        await setWidth(page, needed + padding);
+        await settle(120);
+        assert.equal(await layout(page), 'table', `${needed}px: a table`);
+        const fit = await page.evaluate(() => { const w = document.querySelector('.se-tablewrap'); return { scroll: w.scrollWidth, client: w.clientWidth }; });
+        assert.ok(fit.scroll <= fit.client, `at the width it asks for (${needed}px) the table needs ${fit.scroll}px but has ${fit.client}px`);
+        await setWidth(page, needed + padding - 1);
+        await page.waitForFunction(() => !document.querySelector('table.se-table'), { timeout: 3000 });
+        assert.equal(await layout(page), 'rows', `${needed - 1}px: rows`);
+      } finally { await page.close(); }
+    });
+  }
 }

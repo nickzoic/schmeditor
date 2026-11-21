@@ -264,6 +264,18 @@ textarea.se-input {
   font-variant-numeric: tabular-nums;
 }
 
+.se-table .se-item-ctl {
+  min-width: 0;             /* a table's columns line up by themselves */
+}
+
+.se-table .se-name {
+  min-width: 8em;
+}
+
+.se-table .se-name .se-key {
+  width: 100%;
+}
+
 .se-table .se-cell-ctl {
   width: 1%;
   white-space: nowrap;

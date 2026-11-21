@@ -761,6 +761,154 @@ test('table: the render hook is called for the array and each cell, not for the 
   assert.equal(editor.get('/0/qty'), 3);
 });
 
+// ---- objects of objects shown as tables
+
+const STOCK_ROW = {
+  type: 'object', additionalProperties: false, required: ['qty'],
+  properties: { qty: { title: 'Qty', type: 'integer', minimum: 0 }, reorder: { type: 'boolean' }, note: { type: 'string' } },
+};
+const stockSchema = (extra = {}, row = STOCK_ROW) => ({
+  type: 'object', properties: { warehouse: { type: 'string' } }, additionalProperties: row, ...extra,
+});
+const stock = () => ({ warehouse: 'Melbourne', 'A-100': { qty: 12, reorder: false }, 'B-200': { qty: 0, note: 'old' } });
+
+test('object table: a row per additional property, its name first, declared properties above', () => {
+  const { el } = make(stockSchema({ tabular: true }), stock());
+  assert.ok(tableOf(el));
+  assert.deepEqual([...el.querySelectorAll('thead th')].map(th => th.textContent.trim()),
+    ['Name', 'Qty *', 'reorder', 'note', 'Row actions']);
+  assert.deepEqual(bodyRows(el).map(tr => tr.getAttribute('data-ptr')), ['/A-100', '/B-200']);
+  assert.equal(bodyRows(el)[0].querySelector('td.se-name input.se-key').value, 'A-100');
+  assert.equal(bodyRows(el)[0].querySelector('td.se-cell input.se-input').value, '12');
+  assert.equal(el.querySelector('.se-extra'), null, 'no list fields for the rows');
+  const declared = node(el, '/warehouse');
+  assert.ok(declared && !tableOf(el).contains(declared), 'the declared property is not in the table');
+  assert.ok(declared.compareDocumentPosition(tableOf(el)) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING, 'it comes above it');
+  const addRow = el.querySelector('.se-addrow');
+  assert.ok(tableOf(el).compareDocumentPosition(addRow) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING, 'adding a property comes below the table');
+});
+
+test('object table: editing, renaming, removing and adding rows are ordinary edits', () => {
+  const { el, editor, state } = tracked(stockSchema({ tabular: true }), stock());
+  const last = () => state.events.at(-1);
+
+  const qty = node(el, '/A-100/qty').querySelector('input');
+  qty.value = '15';
+  fire(qty, 'input');
+  assert.deepEqual(last().patch, [{ op: 'replace', path: '/A-100/qty', value: 15 }]);
+
+  const name = bodyRows(el)[0].querySelector('input.se-key');                          // rename
+  name.value = 'C-300';
+  fire(name, 'change');
+  assert.deepEqual(last().patch, [{ op: 'move', from: '/A-100', path: '/C-300' }]);
+  assert.deepEqual(editor.get('/C-300'), { qty: 15, reorder: false });
+  assert.deepEqual(bodyRows(el).map(tr => tr.getAttribute('data-ptr')), ['/C-300', '/B-200']);
+
+  const ki = el.querySelector('.se-addrow input.se-key');                              // add a row
+  ki.value = 'D-400';
+  button(el.querySelector('.se-addrow'), '+ Add property').click();
+  assert.deepEqual(last().patch, [{ op: 'add', path: '/D-400', value: { qty: 0 } }]);
+  assert.equal(bodyRows(el).length, 3);
+
+  const notes = bodyRows(el)[2].querySelectorAll('td.se-cell');                         // an optional cell, added and cleared
+  button(notes[2], '+').click();
+  assert.deepEqual(last().patch, [{ op: 'add', path: '/D-400/note', value: '' }]);
+  button(bodyRows(el)[2].querySelectorAll('td.se-cell')[2], '✕').click();
+  assert.deepEqual(last().patch, [{ op: 'remove', path: '/D-400/note' }]);
+
+  button(bodyRows(el)[1].querySelector('.se-cell-ctl'), '✕').click();                  // remove a row
+  assert.deepEqual(last().patch, [{ op: 'remove', path: '/B-200' }]);
+  assert.deepEqual(bodyRows(el).map(tr => tr.getAttribute('data-ptr')), ['/C-300', '/D-400']);
+  assert.equal(editor.get('/warehouse'), 'Melbourne');
+  assert.deepEqual(state.problems, []);
+});
+
+test('object table: a refused rename puts the name back and says why, in the row', () => {
+  const { el, editor } = make(stockSchema({ tabular: true }), stock());
+  const name = bodyRows(el)[0].querySelector('input.se-key');
+  name.value = 'B-200';                                                                // already a row
+  fire(name, 'change');
+  assert.equal(name.value, 'A-100');
+  assert.deepEqual(Object.keys(editor.get('')), ['warehouse', 'A-100', 'B-200']);
+  const row = bodyRows(el)[0];
+  assert.equal(row._errRow.hidden, false);
+  assert.match(row._errRow.textContent, /already exists/);
+});
+
+test('object table: required names cannot be renamed or removed', () => {
+  const { el } = make(stockSchema({ tabular: true, required: ['A-100'] }), stock());
+  const [locked, free] = bodyRows(el);
+  assert.equal(locked.querySelector('input.se-key').readOnly, true);
+  assert.equal(button(locked.querySelector('.se-cell-ctl'), '✕'), undefined);
+  assert.equal(free.querySelector('input.se-key').readOnly, false);
+  assert.ok(button(free.querySelector('.se-cell-ctl'), '✕'));
+});
+
+test('object table: tabular false and arrays that cannot be tables keep the list of fields', () => {
+  const never = make(stockSchema({ tabular: false }), stock());
+  assert.equal(tableOf(never.el), null);
+  assert.equal(never.el.querySelectorAll('.se-extra').length, 2);
+  const warned = [];
+  const original = console.warn;
+  console.warn = msg => warned.push(msg);
+  try {
+    const row = (changes, drop = []) => { const r = { ...STOCK_ROW, ...changes }; for (const k of drop) delete r[k]; return r; };
+    const cannot = {
+      'additionalProperties true': stockSchema({ additionalProperties: true }),
+      'additionalProperties false': stockSchema({ additionalProperties: false }),
+      'rows that allow other properties': stockSchema({}, row({}, ['additionalProperties'])),
+      'a row with an object property': stockSchema({}, row({ properties: { ...STOCK_ROW.properties, owner: { type: 'object', properties: {} } } })),
+      'rows that vary by oneOf': stockSchema({}, { oneOf: [STOCK_ROW, { type: 'object', properties: {}, additionalProperties: false }] }),
+      'patternProperties on the object': stockSchema({ patternProperties: { '^x-': { type: 'string' } } }),
+      'rows that are not objects': stockSchema({}, { type: 'string' }),
+    };
+    for (const [why, schema] of Object.entries(cannot)) {
+      warned.length = 0;
+      const { el } = make({ ...schema, tabular: true }, { warehouse: 'x' });
+      assert.equal(tableOf(el), null, why);
+      assert.match(warned.join(), /tabular.*ignored/, `${why}: asking for a table says why it didn't happen`);
+    }
+  } finally { console.warn = original; }
+});
+
+test('object table: with tabular unset it follows the width, keeping values and focus', () => {
+  const observers = fakeResizeObservers();
+  const { el, editor, remove } = attached(stockSchema(), stock(), 1000);
+  try {
+    assert.ok(tableOf(el));
+    bodyRows(el)[0].querySelector('input.se-key').focus();
+    observers.resize(300);
+    assert.equal(tableOf(el), null);
+    assert.equal(el.querySelectorAll('.se-extra').length, 2);
+    assert.equal(document.activeElement.value, 'A-100', 'focus is still on that name');
+    assert.equal(document.activeElement.getAttribute('data-fk'), '#A-100');
+    observers.resize(900);
+    assert.ok(tableOf(el));
+    assert.equal(document.activeElement.getAttribute('data-fk'), '#A-100');
+    assert.equal(editor.get('/warehouse'), 'Melbourne');
+    assert.equal(observers.live().length, 1);
+  } finally { remove(); observers.restore(); }
+  const narrow = attached(stockSchema(), stock(), 300);
+  try { assert.equal(tableOf(narrow.el), null); } finally { narrow.remove(); }
+});
+
+test('object table: errors in a row, and something that is not an object, are dealt with in place', () => {
+  const { el, editor } = make(stockSchema({ tabular: true }), { 'A': { note: 'no qty' }, 'B': 5 });
+  assert.match(node(el, '/A')._errRow.textContent, /Missing required property "qty"/);
+  assert.equal(node(el, '/A')._errRow.hidden, false);
+  button(bodyRows(el)[0].querySelectorAll('td.se-cell')[0], '+').click();               // a missing required cell
+  assert.equal(editor.get('/A/qty'), 0);
+  assert.equal(node(el, '/A')._errRow.hidden, true);
+  button(bodyRows(el)[1], 'Replace with a valid object').click();
+  assert.deepEqual(editor.get('/B'), { qty: 0 });
+});
+
+test('object table: the render hook sees the object, the declared property and each cell, not the rows', () => {
+  const seen = [];
+  make(stockSchema({ tabular: true }), { warehouse: 'M', 'A-100': { qty: 1 } }, { render: info => { seen.push(info.path); } });
+  assert.deepEqual(seen, ['', '/warehouse', '/A-100/qty']);
+});
+
 test('if/then: choosing role "staff" adds the newly required department', () => {
   const { el, editor } = make(contactSchema, contactDoc);
   const select = node(el, '/role').querySelector('select');

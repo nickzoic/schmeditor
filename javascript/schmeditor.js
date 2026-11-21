@@ -39,9 +39,12 @@
  *
  * Tables: an array whose items are objects with a fixed set of simple properties (`properties`,
  * `additionalProperties: false`, each property a string, number, integer, boolean, null, enum or
- * const) can be shown as a table, a row per object and a column per property. The array's
- * `tabular` keyword decides: true always shows a table, false never does, and if it isn't set
- * the editor shows a table when there is room for the columns, and switches as the page resizes.
+ * const) can be shown as a table, a row per object and a column per property. So can an object
+ * whose additionalProperties are such objects: a row per additional property, with its name as
+ * the first column, and its declared properties shown above the table as usual. The `tabular`
+ * keyword of the array or object decides: true always shows a table, false never does, and if it
+ * isn't set the editor shows a table when there is room for the columns, and switches as the
+ * page resizes.
  *
  * Custom rendering: the `render` option is called for every node as it is drawn, with
  * info = {schema, value, path, set, editor}:
@@ -161,6 +164,15 @@
     for (const k of Object.keys(obj)) delete obj[k];
     for (const [k, v] of entries) obj[k] = v;
   }
+
+  // The least width (in px) a table column of each kind is given, for a required and for an optional
+  // property (an optional one also holds a button to clear it). They are close to what the controls
+  // need (measured in a browser), and they decide whether there is room for a table; the columns
+  // are held to them.
+  const COLUMN_MIN = { string: [90, 120], number: [90, 120], boolean: [90, 110], enum: [90, 120], const: [75, 90], null: [60, 95] };
+  const columnMin = c => COLUMN_MIN[c.kind][c.required ? 0 : 1];
+  // What is left for the row number and buttons (arrays), or the name and button (objects).
+  const ARRAY_TABLE_BASE = 140, OBJECT_TABLE_BASE = 160;
 
   /* ---------------------------- JSON Patch (RFC 6902) ---------------------------- */
 
@@ -1294,42 +1306,76 @@
         box.append(h('div', { class: 'se-addprop-row' }, sel));
       }
 
-      // Properties that are not declared (additionalProperties / patternProperties).
-      for (const key of keys) {
-        if (hasOwn(props, key)) continue;
+      // Properties that are not declared (additionalProperties). Editing a key renames the property.
+      const renameHandler = (key, keyInput, anchor, tell) => () => {
+        const nk = keyInput.value;
+        if (nk === key) return;
+        const r = this._commit(d => {
+          const o = getAt(d, path);
+          if (nk === '' || nk === '__proto__') throw new Error('Invalid property name');
+          if (hasOwn(o, nk)) throw new Error('Property "' + nk + '" already exists');
+          replaceKeys(o, Object.entries(o).map(([k, v]) => [k === key ? nk : k, v]));
+        }, anchor, path.concat(nk), { primary: [{ op: 'move', from: toPtr(path.concat(key)), path: toPtr(path.concat(nk)) }] });
+        if (r.ok) rebuild();
+        else { keyInput.value = key; tell(this._fmt(r.errors, toPtr(path))); }
+      };
+      const removeProperty = (key, anchor, tell) => {
+        const r = this._commit(d => { delete getAt(d, path)[key]; }, anchor, path.concat(key), { noRepair: true, removed: true });
+        if (r.ok) rebuild(); else tell(this._fmt(r.errors, toPtr(path)));
+      };
+      const keyField = (key, locked, tail) => h('input', {
+        class: 'se-key', type: 'text', value: key, readOnly: locked || tail,
+        title: 'Property name', 'aria-label': 'Property name', 'data-fk': toPtr(path) + '#' + escTok(key),
+      });
+
+      // ...as a list of fields, each with its own name and editor
+      const listExtras = () => keys.filter(k => !hasOwn(props, k)).map(key => {
         const sub = this._propSchema(s, key);
         const locked = req.has(key);
-        const childPath = path.concat(key);
-        const keyInput = h('input', {
-          class: 'se-key', type: 'text', value: key, readOnly: locked || sub === null,
-          title: 'Property name', 'aria-label': 'Property name', 'data-fk': toPtr(path) + '#' + escTok(key),
-        });
+        const keyInput = keyField(key, locked, sub === null);
         const head = h('div', { class: 'se-head' }, keyInput);
         const row = h('div', { class: 'se-field se-extra' }, head);
-        if (!locked)
-          head.append(button('✕', 'Remove this property', keys.length <= minP, b => {
-            const r = this._commit(d => { delete getAt(d, path)[key]; }, row, childPath, { noRepair: true, removed: true });
-            if (r.ok) rebuild(); else this._notice(row, this._fmt(r.errors, toPtr(path)));
-          }));
-        keyInput.addEventListener('change', () => {
-          const nk = keyInput.value;
-          if (nk === key) return;
-          const r = this._commit(d => {
-            const o = getAt(d, path);
-            if (nk === '' || nk === '__proto__') throw new Error('Invalid property name');
-            if (hasOwn(o, nk)) throw new Error('Property "' + nk + '" already exists');
-            replaceKeys(o, Object.entries(o).map(([k, v]) => [k === key ? nk : k, v]));
-          }, row, path.concat(nk), { primary: [{ op: 'move', from: toPtr(path.concat(key)), path: toPtr(path.concat(nk)) }] });
-          if (r.ok) rebuild();
-          else { keyInput.value = key; this._notice(row, this._fmt(r.errors, toPtr(path))); }
-        });
-        row.append(sub === null ? h('code', { class: 'se-const' }, JSON.stringify(value[key])) : this._renderNode(sub, childPath));
-        box.append(row);
-      }
+        const tell = msgs => this._notice(row, msgs);
+        if (!locked) head.append(button('✕', 'Remove this property', keys.length <= minP, () => removeProperty(key, row, tell)));
+        keyInput.addEventListener('change', renameHandler(key, keyInput, row, tell));
+        row.append(sub === null ? h('code', { class: 'se-const' }, JSON.stringify(value[key])) : this._renderNode(sub, path.concat(key)));
+        return row;
+      });
+
+      // ...or, when each is an object with a fixed set of simple properties, as a table: the name
+      // first, then a column per property. (The declared properties above stay as they are.)
+      const objectTable = columns => {
+        const name = (isObj(s.propertyNames) && s.propertyNames.title) || 'Name';
+        const { table, tbody } = this._tableShell(columns, name, 'se-th-name', OBJECT_TABLE_BASE);
+        for (const key of keys.filter(k => !hasOwn(props, k))) {
+          const rowPath = path.concat(key);
+          const locked = req.has(key);
+          const { tr, errRow, tell } = this._tableRow(rowPath, columns);
+          const keyInput = keyField(key, locked, false);
+          keyInput.addEventListener('change', renameHandler(key, keyInput, tr, tell));
+          tr.append(h('td', { class: 'se-name' }, keyInput));
+          for (const td of this._tableCells(columns, rowPath, value[key], tr, tell, rebuild, this._propSchema(s, key), 'row ' + key)) tr.append(td);
+          const ctl = h('div', { class: 'se-item-ctl' });
+          if (!locked) ctl.append(button('✕', 'Remove this property', keys.length <= minP, () => removeProperty(key, tr, tell)));
+          tr.append(h('td', { class: 'se-cell-ctl' }, ctl));
+          tbody.append(tr, errRow);
+        }
+        return [h('div', { class: 'se-tablewrap' }, table)];
+      };
+
+      const patterns = isObj(s.patternProperties) && Object.keys(s.patternProperties).length > 0;
+      const columns = isObj(s.additionalProperties) && !patterns ? this._tableColumns(s.additionalProperties) : null;
+      const hasExtras = keys.some(k => !hasOwn(props, k));
+      let addRow = null;
+      const drawExtras = asTable => {
+        box.querySelectorAll(':scope > .se-extra, :scope > .se-tablewrap').forEach(n => n.remove());
+        for (const el of asTable && hasExtras ? objectTable(columns) : listExtras()) box.insertBefore(el, addRow);
+      };
+      drawExtras(this._chooseLayout(ctx, s, path, body, columns, OBJECT_TABLE_BASE, drawExtras,
+        'its additional properties are not objects with a fixed set of simple properties'));
 
       // "Add property" row, when the schema allows free-form keys.
-      const freeForm = s.additionalProperties !== false ||
-        (isObj(s.patternProperties) && Object.keys(s.patternProperties).length > 0);
+      const freeForm = s.additionalProperties !== false || patterns;
       if (freeForm) {
         const ki = h('input', { class: 'se-key', type: 'text', placeholder: 'New property name', 'aria-label': 'New property name' });
         const add = button('+ Add property', 'Add a property with this name', atMax, b => {
@@ -1344,16 +1390,18 @@
           if (r.ok) rebuild(); else this._notice(addRow, this._fmt(r.errors, toPtr(path)));
         });
         ki.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); add.click(); } });
-        const addRow = h('div', { class: 'se-addrow' }, ki, add);
+        addRow = h('div', { class: 'se-addrow' }, ki, add);
         box.append(addRow);
       }
     }
 
-    // The columns for showing an array as a table, or null if its items aren't objects with a
-    // fixed set of simple properties. `s` is the array's normalised schema.
-    _tableColumns(s) {
-      if (!isObj(s.items)) return null;                 // not a schema for every item (or a tuple)
-      const item = this._norm(s.items);
+    // ---- tables: an array's items, or an object's additional properties, as rows with a column per property
+
+    // The columns for showing rows as a table, or null if `itemSchema` isn't an object schema with a
+    // fixed set of simple properties.
+    _tableColumns(itemSchema) {
+      if (!isObj(itemSchema)) return null;              // not a schema for every row (or a tuple)
+      const item = this._norm(itemSchema);
       const unstable = ['oneOf', 'anyOf', 'if', 'dependentSchemas', 'dependencies'];   // can change a row's shape
       if (unstable.some(k => k in item)) return null;
       if (!isObj(item.properties) || item.additionalProperties !== false) return null;
@@ -1381,11 +1429,106 @@
       return columns.length ? columns : null;
     }
 
-    // How wide (in px) a table of these columns needs to be to be comfortable: room for the row
-    // number and the row buttons, plus a minimum for each column.
-    _tableWidth(columns) {
-      const min = { boolean: 80, number: 90, const: 90, enum: 120, null: 60, string: 140 };
-      return 150 + columns.reduce((sum, c) => sum + min[c.kind], 0);
+    // How wide (in px) a table of these columns needs to be to be comfortable: `base` for the
+    // leading column and the row buttons, plus a minimum for each column.
+    _tableWidth(columns, base) {
+      return base + columns.reduce((sum, c) => sum + columnMin(c), 0);
+    }
+
+    // The table and its heading row. `first` heads the leading column: "#" for an array's rows
+    // (their numbers), "Name" for an object's (their property names).
+    _tableShell(columns, first, firstClass, base) {
+      // Never narrower than the columns need: a table forced on a narrow page scrolls sideways
+      // rather than squashing its controls.
+      const table = h('table', { class: 'se-table', style: 'min-width:' + this._tableWidth(columns, base) + 'px' });
+      table.append(h('thead', null, h('tr', null,
+        h('th', { scope: 'col', class: firstClass }, first),
+        columns.map(c => h('th', { scope: 'col', title: c.description || null, style: 'min-width:' + columnMin(c) + 'px' }, c.title,
+          c.required ? h('span', { class: 'se-req', title: 'Required' }, ' *') : null)),
+        h('th', { scope: 'col', class: 'se-th-ctl' }, h('span', { class: 'se-sr' }, 'Row actions')))));
+      const tbody = h('tbody');
+      table.append(tbody);
+      return { table, tbody };
+    }
+
+    // A row, and a hidden row beneath it for errors about the row itself. `tell(messages)` shows
+    // why an edit to the row was refused.
+    _tableRow(rowPath, columns) {
+      const errBox = h('div', { class: 'se-errors' });
+      const errRow = h('tr', { class: 'se-row-errors', hidden: true }, h('td', { colspan: String(columns.length + 2) }, errBox));
+      const tr = h('tr', { class: 'se-row se-node', 'data-ptr': toPtr(rowPath) });
+      tr._errBox = errBox;                    // errors about the row itself are shown in the row below it
+      tr._errRow = errRow;
+      const tell = msgs => {
+        errRow.hidden = false;
+        this._notice(errBox, msgs);
+        setTimeout(() => { if (!errBox.textContent.trim()) errRow.hidden = true; }, 5100);
+      };
+      return { tr, errRow, tell };
+    }
+
+    // The cells of a row: the normal editor for each property, with + to add an optional property
+    // a row lacks and ✕ to clear one it has. `rowSchema` and `label` are for the row as a whole.
+    _tableCells(columns, rowPath, value, tr, tell, rebuild, rowSchema, label) {
+      const small = (text, title, fn) => {
+        const b = h('button', { type: 'button', class: 'se-btn', title, 'aria-label': title }, text);
+        b.addEventListener('click', fn);
+        return b;
+      };
+      if (!isObj(value)) {                    // something that isn't an object: the normal way to put it right
+        return [h('td', { colspan: String(columns.length) }, this._renderNode(rowSchema, rowPath))];
+      }
+      return columns.map(c => {
+        const cellPath = rowPath.concat(c.key);
+        const td = h('td', { class: 'se-cell' });
+        if (hasOwn(value, c.key)) {
+          const cell = this._renderNode(c.schema, cellPath);
+          cell.querySelectorAll('input, select, textarea').forEach(el => el.setAttribute('aria-label', `${c.title}, ${label}`));
+          const inner = h('div', { class: 'se-cell-inner' }, cell);
+          if (!c.required) inner.append(small('✕', 'Remove ' + c.title, () => {
+            const r = this._commit(d => { delete getAt(d, rowPath)[c.key]; }, tr, cellPath, { noRepair: true, removed: true });
+            if (r.ok) rebuild(); else tell(this._fmt(r.errors, toPtr(rowPath)));
+          }));
+          td.append(inner);
+        } else {
+          td.append(small('+', 'Add ' + c.title, () => {
+            const nv = this._defaultFor(c.schema);
+            const r = this._commit(d => { getAt(d, rowPath)[c.key] = nv; }, tr, cellPath);
+            if (r.ok) rebuild(); else tell(this._fmt(r.errors, toPtr(rowPath)));
+          }));
+        }
+        return td;
+      });
+    }
+
+    // Table or rows? The `tabular` keyword: true for always, false for never, otherwise a table when
+    // the columns fit in the width available, and it is watched, so it switches as the width changes.
+    // Returns whether to start with a table; `redraw(asTable)` draws the rows either way. Things that
+    // can't be a table (`columns` is null) never are.
+    _chooseLayout(ctx, s, path, body, columns, base, redraw, reason) {
+      const tabular = typeof s.tabular === 'boolean' ? s.tabular : undefined;
+      if (tabular === true && !columns)
+        console.warn('schmeditor: "tabular": true is ignored for ' + (toPtr(path) || 'the document') + ', because ' + reason);
+      if (!columns || tabular === false) return false;
+      if (tabular === true) return true;
+      const needed = this._tableWidth(columns, base);
+      // Keep what the last layout decided across rebuilds, so adding a row doesn't flicker; the
+      // first time, guess from the width of the whole editor (less some for nesting).
+      let asTable = ctx.asTable !== undefined ? ctx.asTable
+        : this.container.getBoundingClientRect().width - path.length * 12 >= needed;
+      if (ctx.watcher) ctx.watcher.disconnect();
+      if (typeof ResizeObserver === 'function') {
+        const watcher = ctx.watcher = new ResizeObserver(entries => {
+          if (!body.isConnected) { watcher.disconnect(); return; }     // this has been redrawn or removed
+          const width = entries[entries.length - 1].contentRect.width;
+          if (width === 0) return;                                      // hidden: nothing to measure
+          const wanted = width >= needed;
+          if (wanted !== asTable) { asTable = ctx.asTable = wanted; this._keepFocus(() => redraw(asTable)); }
+        });
+        watcher.observe(body);
+      }
+      ctx.asTable = asTable;
+      return asTable;
     }
 
     _renderArray(ctx) {
@@ -1448,93 +1591,25 @@
       // The items as a table: a row per object, a column per property. Each cell is the normal
       // editor for that property, so checking, patches and the render hook all work as usual.
       const tableRows = columns => {
-        // Never narrower than the columns need: a table forced on a narrow page scrolls sideways
-        // rather than squashing its controls.
-        const table = h('table', { class: 'se-table', style: 'min-width:' + this._tableWidth(columns) + 'px' });
-        table.append(h('thead', null, h('tr', null,
-          h('th', { scope: 'col', class: 'se-th-idx' }, '#'),
-          columns.map(c => h('th', { scope: 'col', title: c.description || null }, c.title,
-            c.required ? h('span', { class: 'se-req', title: 'Required' }, ' *') : null)),
-          h('th', { scope: 'col', class: 'se-th-ctl' }, h('span', { class: 'se-sr' }, 'Row actions')))));
-        const tbody = h('tbody');
-        table.append(tbody);
+        const { table, tbody } = this._tableShell(columns, '#', 'se-th-idx', ARRAY_TABLE_BASE);
         arr.forEach((value, i) => {
           const rowPath = path.concat(i);
-          const errBox = h('div', { class: 'se-errors' });
-          const errRow = h('tr', { class: 'se-row-errors', hidden: true }, h('td', { colspan: String(columns.length + 2) }, errBox));
-          const tr = h('tr', { class: 'se-row se-node', 'data-ptr': toPtr(rowPath) }, h('td', { class: 'se-idx' }, String(i + 1)));
-          tr._errBox = errBox;                    // errors about the row itself are shown in the row below it
-          tr._errRow = errRow;
-          const tell = msgs => {
-            errRow.hidden = false;
-            this._notice(errBox, msgs);
-            setTimeout(() => { if (!errBox.textContent.trim()) errRow.hidden = true; }, 5100);
-          };
-          if (!isObj(value)) {                    // something that isn't an object: the normal way to put it right
-            tr.append(h('td', { colspan: String(columns.length) }, this._renderNode(this._itemSchema(s, i), rowPath)));
-          } else {
-            for (const c of columns) {
-              const cellPath = rowPath.concat(c.key);
-              const td = h('td', { class: 'se-cell' });
-              if (hasOwn(value, c.key)) {
-                const cell = this._renderNode(c.schema, cellPath);
-                cell.querySelectorAll('input, select, textarea').forEach(el => el.setAttribute('aria-label', `${c.title}, row ${i + 1}`));
-                const inner = h('div', { class: 'se-cell-inner' }, cell);
-                if (!c.required) inner.append(button('✕', 'Remove ' + c.title, false, () => {
-                  const r = this._commit(d => { delete getAt(d, rowPath)[c.key]; }, tr, cellPath, { noRepair: true, removed: true });
-                  if (r.ok) rebuild(); else tell(this._fmt(r.errors, toPtr(rowPath)));
-                }));
-                td.append(inner);
-              } else {
-                td.append(button('+', 'Add ' + c.title, false, () => {
-                  const nv = this._defaultFor(c.schema);
-                  const r = this._commit(d => { getAt(d, rowPath)[c.key] = nv; }, tr, cellPath);
-                  if (r.ok) rebuild(); else tell(this._fmt(r.errors, toPtr(rowPath)));
-                }));
-              }
-              tr.append(td);
-            }
-          }
+          const { tr, errRow, tell } = this._tableRow(rowPath, columns);
+          tr.append(h('td', { class: 'se-idx' }, String(i + 1)));
+          for (const td of this._tableCells(columns, rowPath, value, tr, tell, rebuild, this._itemSchema(s, i), 'row ' + (i + 1))) tr.append(td);
           tr.append(h('td', { class: 'se-cell-ctl' }, itemControls(i, tr, tell)));
           tbody.append(tr, errRow);
         });
         return [h('div', { class: 'se-tablewrap' }, table)];
       };
 
-      // Table or list? The array's `tabular` keyword: true for always, false for never, otherwise
-      // a table when the columns fit in the width available. Arrays that can't be a table never are.
-      const columns = prefixLen === 0 ? this._tableColumns(s) : null;
-      const tabular = typeof s.tabular === 'boolean' ? s.tabular : undefined;
-      if (tabular === true && !columns)
-        console.warn('schmeditor: "tabular": true is ignored for ' + (toPtr(path) || 'the document') +
-          ', because its items are not objects with a fixed set of simple properties');
-      const canTable = !!columns && tabular !== false;
-      const needed = columns ? this._tableWidth(columns) : 0;
+      const columns = prefixLen === 0 ? this._tableColumns(s.items) : null;
       let addRow = null;
       const draw = asTable => {
         list.querySelectorAll(':scope > .se-item, :scope > .se-tablewrap').forEach(n => n.remove());
         for (const el of asTable && arr.length ? tableRows(columns) : listRows()) list.insertBefore(el, addRow);
       };
-      let asTable = canTable && tabular === true;
-      if (canTable && tabular === undefined) {
-        // Keep what the last layout decided across rebuilds, so adding a row doesn't flicker; the
-        // first time, guess from the width of the whole editor (less some for nesting).
-        asTable = ctx.asTable !== undefined ? ctx.asTable
-          : this.container.getBoundingClientRect().width - path.length * 12 >= needed;
-        if (ctx.watcher) ctx.watcher.disconnect();
-        if (typeof ResizeObserver === 'function') {
-          const watcher = ctx.watcher = new ResizeObserver(entries => {
-            if (!body.isConnected) { watcher.disconnect(); return; }   // this array has been redrawn or removed
-            const width = entries[entries.length - 1].contentRect.width;
-            if (width === 0) return;                                    // hidden: nothing to measure
-            const wanted = width >= needed;
-            if (wanted !== asTable) { asTable = ctx.asTable = wanted; this._keepFocus(() => draw(asTable)); }
-          });
-          watcher.observe(body);
-        }
-        ctx.asTable = asTable;
-      }
-      draw(asTable);
+      draw(this._chooseLayout(ctx, s, path, body, columns, ARRAY_TABLE_BASE, draw, 'its items are not objects with a fixed set of simple properties'));
 
       if (fixed) return;
       const nextSchema = this._itemSchema(s, arr.length);
