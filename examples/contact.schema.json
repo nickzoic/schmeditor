@@ -345,6 +345,40 @@
           "additionalProperties": false,
           "description": "patternProperties with additionalProperties: false. Keys must start with max_ or flag_."
         },
+        "stock": {
+          "title": "Stock levels",
+          "type": "object",
+          "description": "An object whose additional properties are objects with fixed simple properties: each is a row of a table, with its name first. Its declared property, “warehouse”, stays above the table.",
+          "properties": {
+            "warehouse": {
+              "type": "string",
+              "default": "Main"
+            }
+          },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "qty"
+            ],
+            "properties": {
+              "qty": {
+                "title": "Qty",
+                "type": "integer",
+                "minimum": 0,
+                "default": 0
+              },
+              "reorder": {
+                "title": "Reorder?",
+                "type": "boolean"
+              },
+              "note": {
+                "title": "Note",
+                "type": "string"
+              }
+            }
+          }
+        },
         "scratch": {
           "title": "Free-form",
           "type": "object",

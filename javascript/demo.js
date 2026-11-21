@@ -112,6 +112,19 @@ const schema = {
           additionalProperties: false,
           description: 'patternProperties with additionalProperties: false. Keys must start with max_ or flag_.'
         },
+        stock: {
+          title: 'Stock levels', type: 'object',
+          description: 'An object whose additional properties are objects with fixed simple properties: each is a row of a table, with its name first. Its declared property, “warehouse”, stays above the table.',
+          properties: { warehouse: { type: 'string', default: 'Main' } },
+          additionalProperties: {
+            type: 'object', additionalProperties: false, required: ['qty'],
+            properties: {
+              qty: { title: 'Qty', type: 'integer', minimum: 0, default: 0 },
+              reorder: { title: 'Reorder?', type: 'boolean' },
+              note: { title: 'Note', type: 'string' }
+            }
+          }
+        },
         scratch: { title: 'Free-form', type: 'object', default: { note: 'anything goes' }, description: 'No constraints: values can be any JSON type.' }
       }
     },
@@ -206,7 +219,10 @@ const initial = {
     phones: [{ kind: 'mobile', number: '0400 111 222' }, { kind: 'work', number: '03 5555 0000' }],
     team: [{ name: 'Ada', role: 'lead' }, { name: 'Charles', role: 'engineer' }]
   },
-  objects: { labels: { team: 'core' }, limits: { max_items: 10, flag_beta: true }, scratch: { note: 'anything goes', count: 3, accent: '#3b82f6' } },
+  objects: {
+    labels: { team: 'core' }, limits: { max_items: 10, flag_beta: true },
+    stock: { warehouse: 'Melbourne', 'A-100': { qty: 12, reorder: false }, 'B-200': { qty: 0, reorder: true, note: 'discontinued' } },
+    scratch: { note: 'anything goes', count: 3, accent: '#3b82f6' } },
   billing: { card: '4242', cardExpiry: '01/30' },
   shipping: { method: 'pickup', store: 'Central' },
   composition: {
@@ -230,6 +246,10 @@ const metaschema = (() => {
   const schemaList = { type: 'array', items: S, minItems: 1 };
   const strings = { type: 'array', items: { type: 'string', minLength: 1, default: 'name' }, uniqueItems: true };
   const count = { type: 'integer', minimum: 0, default: 0 };
+  const tabular = {
+    type: 'boolean',
+    description: 'For an array of objects, or an object whose additional properties are objects, with fixed simple properties: true always shows a table, false never does. Unset: a table when there is room.'
+  };
   const types = ['string', 'number', 'integer', 'boolean', 'null', 'object', 'array'];
 
   // Keywords that can accompany any kind of schema.
@@ -275,6 +295,7 @@ const metaschema = (() => {
     minProperties: count,
     maxProperties: count,
     propertyNames: S,
+    tabular,
     dependentRequired: { type: 'object', additionalProperties: strings },
     dependentSchemas: { type: 'object', additionalProperties: S },
     dependencies: {
@@ -296,10 +317,7 @@ const metaschema = (() => {
     contains: S,
     minContains: count,
     maxContains: count,
-    tabular: {
-      type: 'boolean',
-      description: 'For an array of objects with fixed simple properties: true always shows a table, false never does. Unset: a table when there is room.'
-    }
+    tabular
   };
   const allKw = { ...stringKw, ...numberKw, ...objectKw, ...arrayKw };
 

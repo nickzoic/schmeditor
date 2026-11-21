@@ -73,6 +73,18 @@
       "max_items": 10,
       "flag_beta": true
     },
+    "stock": {
+      "warehouse": "Melbourne",
+      "A-100": {
+        "qty": 12,
+        "reorder": false
+      },
+      "B-200": {
+        "qty": 0,
+        "reorder": true,
+        "note": "discontinued"
+      }
+    },
     "scratch": {
       "note": "anything goes",
       "count": 3,

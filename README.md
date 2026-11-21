@@ -33,8 +33,8 @@ A document that starts out valid therefore stays valid, however you edit it.
 * **Works on documents that start invalid.** Their errors are shown, and edits may only reduce them.
 * Exposes a **programmatic API** to read and change the document, and a **change callback** that
   receives each change as a [JSON Patch](https://datatracker.ietf.org/doc/html/rfc6902) (RFC 6902).
-* **Shows arrays of simple objects as tables**, a row per object and a column per property, when there is
-  room (browser component).
+* **Shows arrays of simple objects, and objects of simple objects, as tables**, a row per object and a
+  column per property, when there is room (browser component).
 * **Lets you draw any node yourself.** The browser component has a `render` hook that can replace how
   a node is drawn, based on its schema and value, and fall back to the normal rendering otherwise.
 * The browser component **follows the browser's light/dark setting**.
@@ -146,38 +146,50 @@ Options: `onChange`; `notifyOnProgrammatic` (default `false`: also call the call
 `set`/`remove`/`insert`/`push`/`setDocument`, with `source: 'api'`); `validateFormats` (default
 `true`: treat `format` as an assertion); `render` (a hook to draw nodes yourself, below).
 
-### Arrays as tables
+### Tables
 
-An array whose items are objects with a fixed set of simple properties is shown as a table: a row per
-object and a column per property, with the property's `title` (or name) as the heading and a `*` on
-the required ones, and the usual buttons to move and remove a row. Each cell is the normal editor
-for that property, so checking, change notifications (with their patches) and the `render` hook work
-just as they do elsewhere. An optional property that a row lacks shows a `+` in its cell, and a
-filled optional cell has a small ✕ to clear it.
+Two shapes of data are shown as a table when the rows are objects with a fixed set of simple properties:
+
+* **an array of such objects**: a row per item, numbered, with the usual buttons to move and remove it;
+* **an object whose `additionalProperties` are such objects**: a row per additional property, with the
+  property's **name as the first column**. Editing a name renames the property, as it does in the list
+  of fields. The object's own declared `properties` are drawn as usual **above** the table, and the
+  "Add property" row below it. A name that the object requires can't be renamed or removed.
+
+Either way there is a column per property of the row, headed by its `title` (or name), with a `*` on
+the required ones. Each cell is the normal editor for that property, so checking, change notifications
+(with their patches) and the `render` hook work just as they do elsewhere. An optional property that a
+row lacks shows a `+` in its cell, and a filled optional cell has a small ✕ to clear it.
 
 ```json
 {
-  "type": "array",
-  "items": {
+  "type": "object",
+  "properties": { "warehouse": { "type": "string" } },
+  "additionalProperties": {
     "type": "object",
     "additionalProperties": false,
-    "required": ["sku", "qty"],
+    "required": ["qty"],
     "properties": {
-      "sku": { "title": "SKU", "type": "string" },
-      "qty": { "title": "Qty", "type": "integer", "minimum": 1 },
-      "gift": { "type": "boolean" }
+      "qty": { "title": "Qty", "type": "integer", "minimum": 0 },
+      "reorder": { "type": "boolean" },
+      "note": { "type": "string" }
     }
   }
 }
 ```
 
-An array qualifies when `items` is an object schema (or a `$ref` to one) with `properties` and
-`additionalProperties: false`, no `patternProperties`, none of `oneOf`, `anyOf`, `if`,
-`dependentSchemas` or `dependencies`, and every property is a single string, number, integer, boolean
-or null, or an `enum` or `const` of such values. Tuples don't qualify.
+Here `warehouse` is shown above a table with the names ("A-100", "B-200", …) in the first column and
+`Qty`, `reorder` and `note` after them. The same row schema as the `items` of an array gives a table
+with a row number in place of the name.
 
-The array's **`tabular`** keyword (an editor keyword, not part of JSON Schema; other tools ignore it)
-chooses the layout:
+The rows qualify when their schema (or a `$ref` to it) is an object schema with `properties` and
+`additionalProperties: false`, no `patternProperties`, and none of `oneOf`, `anyOf`, `if`,
+`dependentSchemas` or `dependencies`; and every property is a single string, number, integer, boolean
+or null, or an `enum` or `const` of such values. For an object, it must also have no `patternProperties`
+of its own (they would give some names a different schema). Tuples don't qualify.
+
+The **`tabular`** keyword on the array or object (an editor keyword, not part of JSON Schema; other tools
+ignore it) chooses the layout:
 
 | `tabular` | Layout |
 | --- | --- |
@@ -185,16 +197,20 @@ chooses the layout:
 | `false` | never a table |
 | not set | a table when there is room for the columns, rows otherwise |
 
-If you set `"tabular": true` on an array that doesn't qualify, it is drawn the normal way and a
-warning says why in the console. When `tabular` isn't set, the width that counts is that of the
-array's own box (so a nested array is judged by the room it has), and the layout switches as it
-changes, for example when the window is resized, keeping the values and the focus. A table is
-chosen when the box is at least about 150px (for the row number and buttons) plus 140px for each string
-column, 120px for each enum, 90px for each number or const, 80px for each boolean and 60px for each null.
+If you set `"tabular": true` on something that doesn't qualify, it is drawn the normal way and a warning
+says why in the console. When `tabular` isn't set, the width that counts is that of the array's or
+object's own box (so a nested one is judged by the room it has), and the layout switches as it
+changes, for example when the window is resized, keeping the values and the focus. A table is chosen
+when the box is at least about 140px for an array (160px for an object) plus, for each column, roughly the
+width its control needs: 90px for a string, number or enum, 90px for a boolean, 75px for a const and 60px
+for a null, and 15 to 35px more if the property is optional, to leave room for the button that clears it.
+These were measured against the controls in a browser, and the browser tests check that a table
+really does fit at the width it asks for, and that one pixel less gives rows.
 
-In a table the `render` hook is called for the array and for each cell, but not for the rows. The
-metaschema in `examples/` accepts `tabular`, and the demonstration page has one of each: Line items
-(not set), Phone numbers (`true`) and Team (`false`).
+In a table the `render` hook is called for the array or object and for each cell, but not for the rows.
+The metaschema in `examples/` accepts `tabular`, and the demonstration page has one of each: Line items
+(not set), Phone numbers (`true`) and Team (`false`) are arrays, and Stock levels is an object of
+objects.
 
 ### Custom rendering
 

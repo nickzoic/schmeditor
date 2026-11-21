@@ -600,6 +600,10 @@
             "propertyNames": {
               "$ref": "#/$defs/schema"
             },
+            "tabular": {
+              "type": "boolean",
+              "description": "For an array of objects, or an object whose additional properties are objects, with fixed simple properties: true always shows a table, false never does. Unset: a table when there is room."
+            },
             "dependentRequired": {
               "type": "object",
               "additionalProperties": {
@@ -775,7 +779,7 @@
             },
             "tabular": {
               "type": "boolean",
-              "description": "For an array of objects with fixed simple properties: true always shows a table, false never does. Unset: a table when there is room."
+              "description": "For an array of objects, or an object whose additional properties are objects, with fixed simple properties: true always shows a table, false never does. Unset: a table when there is room."
             }
           },
           "additionalProperties": false
@@ -961,6 +965,10 @@
             "propertyNames": {
               "$ref": "#/$defs/schema"
             },
+            "tabular": {
+              "type": "boolean",
+              "description": "For an array of objects, or an object whose additional properties are objects, with fixed simple properties: true always shows a table, false never does. Unset: a table when there is room."
+            },
             "dependentRequired": {
               "type": "object",
               "additionalProperties": {
@@ -1052,10 +1060,6 @@
               "type": "integer",
               "minimum": 0,
               "default": 0
-            },
-            "tabular": {
-              "type": "boolean",
-              "description": "For an array of objects with fixed simple properties: true always shows a table, false never does. Unset: a table when there is room."
             }
           },
           "additionalProperties": false
@@ -1222,6 +1226,10 @@
             "propertyNames": {
               "$ref": "#/$defs/schema"
             },
+            "tabular": {
+              "type": "boolean",
+              "description": "For an array of objects, or an object whose additional properties are objects, with fixed simple properties: true always shows a table, false never does. Unset: a table when there is room."
+            },
             "dependentRequired": {
               "type": "object",
               "additionalProperties": {
@@ -1313,10 +1321,6 @@
               "type": "integer",
               "minimum": 0,
               "default": 0
-            },
-            "tabular": {
-              "type": "boolean",
-              "description": "For an array of objects with fixed simple properties: true always shows a table, false never does. Unset: a table when there is room."
             }
           },
           "additionalProperties": false
