@@ -47,12 +47,23 @@ const openStock = (width, extra = {}) =>
 const layout = page => page.evaluate(() => (document.querySelector('table.se-table') ? 'table' : document.querySelector('.se-item, .se-extra') ? 'rows' : 'none'));
 const setWidth = (page, width) => page.evaluate(w => { document.getElementById('editor').style.width = w + 'px'; }, width);
 const settle = ms => new Promise(r => setTimeout(r, ms));
+// Wait until the layout is `expected`: the editor switches when the browser reports a new size, which
+// happens a moment after the page changes, so a fixed sleep is a race on a slow machine. Then check it.
+async function expectLayout(page, expected, message) {
+  try {
+    await page.waitForFunction(want => {
+      const table = !!document.querySelector('table.se-table'), rows = !!document.querySelector('.se-item, .se-extra');
+      return want === 'table' ? table : rows && !table;
+    }, { timeout: 5000 }, expected);
+  } catch (e) { /* the assertion below reports what the layout was */ }
+  assert.equal(await layout(page), expected, message);
+}
 
 test('with no "tabular" keyword the layout follows the real width, in both directions', async t => {
   if (needBrowser(t)) return;
   const page = await open(900);
   try {
-    assert.equal(await layout(page), 'table');
+    await expectLayout(page, 'table', '900px');
     await page.focus('[data-fk="/0/sku"]');
     await setWidth(page, 320);
     await page.waitForFunction(() => !document.querySelector('table.se-table'));
@@ -71,21 +82,23 @@ test('an editor that starts narrow starts as rows, and one that starts wide as a
   for (const [width, expected] of [[320, 'rows'], [900, 'table']]) {
     const page = await open(width);
     try {
-      await settle(150);
-      assert.equal(await layout(page), expected, `${width}px`);
+      await expectLayout(page, expected, `${width}px`);
+      await settle(200);                                           // and it stays that way once the size has been reported
+      assert.equal(await layout(page), expected, `${width}px, later`);
     } finally { await page.close(); }
   }
 });
 
 test('"tabular": true and false ignore the width', async t => {
   if (needBrowser(t)) return;
-  const forced = await open(320, { tabular: true });
-  const never = await open(1400, { tabular: false });
-  try {
-    await settle(150);
-    assert.equal(await layout(forced), 'table');
-    assert.equal(await layout(never), 'rows');
-  } finally { await forced.close(); await never.close(); }
+  for (const [extra, width, expected] of [[{ tabular: true }, 320, 'table'], [{ tabular: false }, 1400, 'rows']]) {
+    const page = await open(width, extra);                          // one page at a time: a hidden page is not told its size
+    try {
+      await expectLayout(page, expected, `tabular ${extra.tabular} at ${width}px`);
+      await settle(200);
+      assert.equal(await layout(page), expected, `tabular ${extra.tabular} at ${width}px, later`);
+    } finally { await page.close(); }
+  }
 });
 
 test('a table forced onto a narrow page scrolls inside itself and does not widen the editor or the page', async t => {
@@ -111,6 +124,7 @@ test('the columns line up: each cell sits under its heading', async t => {
   if (needBrowser(t)) return;
   const page = await open(900);
   try {
+    await expectLayout(page, 'table', '900px');
     const m = await page.evaluate(() => {
       const heads = [...document.querySelectorAll('thead th')].map(th => th.getBoundingClientRect().left);
       return [...document.querySelectorAll('tbody tr.se-row')].map(tr =>
@@ -144,8 +158,7 @@ test('an object of objects follows the real width too, keeping focus on a name',
   if (needBrowser(t)) return;
   const page = await openStock(900);
   try {
-    await settle(150);
-    assert.equal(await layout(page), 'table');
+    await expectLayout(page, 'table', '900px');
     await page.focus('[data-fk="#A-100"]');
     await setWidth(page, 300);
     await page.waitForFunction(() => !document.querySelector('table.se-table'));
@@ -162,6 +175,7 @@ test('an object table: the declared property is above it, names line up under "N
   if (needBrowser(t)) return;
   const page = await openStock(900, { tabular: true });
   try {
+    await expectLayout(page, 'table', 'tabular: true');
     const m = await page.evaluate(() => {
       const table = document.querySelector('table.se-table'), declared = document.querySelector('[data-ptr="/warehouse"]');
       const heads = [...table.querySelectorAll('thead th')].map(th => th.getBoundingClientRect().left);
@@ -204,18 +218,16 @@ for (const shape of ['array', 'object']) {
       const doc = shape === 'array' ? [rowValue] : { 'row-1': rowValue };
       const page = await openWith(schema, doc, 2000);
       try {
-        await settle(100);
-        assert.equal(await layout(page), 'table', 'plenty of room: a table');
+        await expectLayout(page, 'table', 'plenty of room: a table');
         const needed = await page.evaluate(() => parseInt(document.querySelector('table.se-table').style.minWidth));
         const padding = 24;                                           // the editor's own padding
         await setWidth(page, needed + padding);
-        await settle(120);
-        assert.equal(await layout(page), 'table', `${needed}px: a table`);
+        await settle(200);                                            // long enough for any resize report to arrive
+        await expectLayout(page, 'table', `${needed}px: a table`);
         const fit = await page.evaluate(() => { const w = document.querySelector('.se-tablewrap'); return { scroll: w.scrollWidth, client: w.clientWidth }; });
         assert.ok(fit.scroll <= fit.client, `at the width it asks for (${needed}px) the table needs ${fit.scroll}px but has ${fit.client}px`);
         await setWidth(page, needed + padding - 1);
-        await page.waitForFunction(() => !document.querySelector('table.se-table'), { timeout: 3000 });
-        assert.equal(await layout(page), 'rows', `${needed - 1}px: rows`);
+        await expectLayout(page, 'rows', `${needed - 1}px: rows`);
       } finally { await page.close(); }
     });
   }
