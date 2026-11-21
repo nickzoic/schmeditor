@@ -31,8 +31,8 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
           cache-dependency-path: javascript/package-lock.json
-      - run: npm ci
-      - run: npm test
+      - run: bash ../tools/ci-run.sh "JavaScript (Node ${{ matrix.node }}) npm ci" npm ci
+      - run: bash ../tools/ci-run.sh "JavaScript (Node ${{ matrix.node }}) npm test" npm test
 
   browser:
     name: JavaScript in a real browser (Chrome)
@@ -49,8 +49,14 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: javascript/package-lock.json
-      - run: npm ci
-      - run: >-
+      - run: |
+          bash ../tools/ci-run.sh "Browser tests: npm ci" npm ci
+      - name: Browser tests
+        env:
+          CHROME_DUMPIO: "1"            # Chrome's own messages go into the output, to explain a failure to start
+          CI_RUN_LINES: "120"
+        run: >-
+          bash ../tools/ci-run.sh "Browser tests"
           node --test
           --test-reporter=spec --test-reporter-destination=stdout
           --test-reporter=./browser/annotate.js --test-reporter-destination=stdout
@@ -83,8 +89,14 @@ jobs:
           python-version: ${{ matrix.python }}
           cache: pip
           cache-dependency-path: python/pyproject.toml
-      - run: python -m pip install -e '.[test]'
-      - run: python -m pytest -v
+      - run: |
+          bash ../tools/ci-run.sh "Python ${{ matrix.python }} on ${{ matrix.os }}: install" python -m pip install -e '.[test]'
+        shell: bash
+      - run: |
+          bash ../tools/ci-run.sh "Python ${{ matrix.python }} on ${{ matrix.os }}: pytest" python -m pytest -v
+        shell: bash
+        env:
+          CI_RUN_LINES: "150"
 
   package:
     name: Python package builds
@@ -94,14 +106,17 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - run: python -m pip install build twine
-      - run: python -m build python
-      - run: python -m twine check python/dist/*
+      - run: |
+          bash tools/ci-run.sh "Package: install build tools" python -m pip install build twine
+      - run: |
+          bash tools/ci-run.sh "Package: build" python -m build python
+      - run: |
+          bash tools/ci-run.sh "Package: twine check" python -m twine check python/dist/*
       - name: Install the built wheel and run it
         run: |
-          python -m pip install python/dist/*.whl
-          schmeditor examples/contact.schema.json examples/contact.json --check
-          schmeditor examples/editor-metaschema.json examples/contact.schema.json --check
+          bash tools/ci-run.sh "Package: install the wheel" python -m pip install python/dist/*.whl
+          bash tools/ci-run.sh "Package: check the contact example" schmeditor examples/contact.schema.json examples/contact.json --check
+          bash tools/ci-run.sh "Package: check the contact schema" schmeditor examples/editor-metaschema.json examples/contact.schema.json --check
 
   agreement:
     name: JavaScript and Python implementations agree
@@ -116,8 +131,12 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - run: npm ci
+      - run: |
+          bash ../tools/ci-run.sh "Agreement: npm ci" npm ci
         working-directory: javascript
-      - run: python -m pip install -e python
-      - run: python tools/compare_validators.py
-      - run: python tools/compare_patches.py
+      - run: |
+          bash tools/ci-run.sh "Agreement: install the package" python -m pip install -e python
+      - run: |
+          bash tools/ci-run.sh "Agreement: validators" python tools/compare_validators.py
+      - run: |
+          bash tools/ci-run.sh "Agreement: patches" python tools/compare_patches.py

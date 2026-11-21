@@ -439,6 +439,13 @@ there are many) and a live form in the metaschema demo.
   `schmeditor` command on the examples;
 * the checks that the JavaScript and Python validators and JSON Patch implementations agree.
 
+**Reading a failure.** Every step runs through [`tools/ci-run.sh`](tools/ci-run.sh), which passes the output
+through and keeps the exit status, but when a step fails also writes the last 80 lines of its output (more for
+the Python and browser tests) as an error annotation named after the step. Annotations show on the run's page
+and come back from the check-runs API, so a failure can be read without downloading the log. The browser job
+also prints Chrome's own messages (`CHROME_DUMPIO`), which is what explains a failure to start, and reports
+each failed browser test separately through [`javascript/browser/annotate.js`](javascript/browser/annotate.js).
+
 ## License
 
 [CC0 1.0 Universal](LICENSE): public domain dedication.

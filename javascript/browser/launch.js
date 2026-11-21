@@ -5,6 +5,7 @@
 // Starting Chrome on a busy CI machine sometimes hangs ("Timed out ... waiting for the WS endpoint URL"),
 // and that is nothing to do with what is being tested, so it is tried a few times, each with a shorter
 // timeout than puppeteer's default, before giving up. The flags are the usual ones for containers and CI.
+// Set CHROME_DUMPIO to have Chrome's own messages (its stderr) printed, which is what explains a failure to start.
 const ATTEMPTS = 3;
 const FLAGS = ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--no-first-run', '--no-default-browser-check'];
 
@@ -12,9 +13,10 @@ async function launchBrowser({ puppeteer, attempts = ATTEMPTS, retryDelay = 1000
   puppeteer = puppeteer || require('puppeteer-core');
   const headless = process.env.CHROME_HEADLESS === 'shell' ? 'shell' : true;
   const args = [...FLAGS, ...(process.env.CHROME_ARGS ? process.env.CHROME_ARGS.split(' ') : [])];
+  const dumpio = !!process.env.CHROME_DUMPIO;
   const options = process.env.CHROME_PATH
-    ? { executablePath: process.env.CHROME_PATH, headless, args, timeout }
-    : { channel: 'chrome', headless, args, timeout };
+    ? { executablePath: process.env.CHROME_PATH, headless, args, timeout, dumpio }
+    : { channel: 'chrome', headless, args, timeout, dumpio };
   let failure;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
